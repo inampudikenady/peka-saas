@@ -11,6 +11,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.core.config import settings
 from app.db.base import Base
+import app.models  # noqa: F401
 
 target_metadata = Base.metadata
 
