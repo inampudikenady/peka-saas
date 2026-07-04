@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: peka-saas-postgres
+    environment:
+      POSTGRES_DB: peka_saas
+      POSTGRES_USER: peka
+      POSTGRES_PASSWORD: peka
+    ports:
+      - "5432:5432"
+    volumes:
+      - peka_saas_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  peka_saas_postgres_data:
