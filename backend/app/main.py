@@ -6,6 +6,7 @@ import uuid
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.api.routes.platform.tenants import router as platform_tenants_router
+from app.api.routes.platform.auth import router as platform_auth_router
 
 from app.core.exceptions import (
     TenantAlreadyExistsError,
@@ -27,6 +28,13 @@ app = FastAPI(
     openapi_url=f"{settings.api_prefix}/openapi.json",
     docs_url="/docs",
     redoc_url="/redoc",
+)
+
+
+app.include_router(
+    platform_auth_router,
+    prefix=settings.api_prefix,
+    tags=["platform-auth"],
 )
 
 app.include_router(
