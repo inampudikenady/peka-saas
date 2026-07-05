@@ -1,14 +1,18 @@
 class PEKAError(Exception):
-    """Base application exception."""
+    """Base exception for all domain-level PEKA errors."""
 
 
-class TenantAlreadyExistsError(PEKAError):
-    pass
+class TenantError(PEKAError):
+    """Base exception for tenant-related operations."""
 
 
-class TenantDomainAlreadyExistsError(PEKAError):
-    pass
+class TenantAlreadyExistsError(TenantError):
+    """Raised when attempting to create a tenant with an existing slug."""
 
 
-class TenantNotFoundError(PEKAError):
-    pass
+class TenantDomainAlreadyExistsError(TenantError):
+    """Raised when a tenant primary domain is already assigned."""
+
+
+class TenantNotFoundError(TenantError):
+    """Raised when the requested tenant cannot be found."""
