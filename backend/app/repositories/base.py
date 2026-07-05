@@ -26,3 +26,9 @@ class BaseRepository(Generic[ModelType]):
     def delete(self, entity: ModelType) -> None:
         self.db.delete(entity)
         self.db.flush()
+
+    def commit(self) -> None:
+        self.db.commit()
+
+    def rollback(self) -> None:
+        self.db.rollback()
