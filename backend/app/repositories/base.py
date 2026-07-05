@@ -32,3 +32,6 @@ class BaseRepository(Generic[ModelType]):
 
     def rollback(self) -> None:
         self.db.rollback()
+
+    def refresh(self, entity: ModelType) -> None:
+        self.db.refresh(entity)
