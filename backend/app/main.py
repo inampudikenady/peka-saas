@@ -14,6 +14,7 @@ from app.core.exceptions import (
 )
 from app.core.config import settings
 from app.core.logging import configure_logging, request_id_ctx
+from app.middleware.tenant_context import TenantContextMiddleware
 
 configure_logging()
 
@@ -33,6 +34,8 @@ app.include_router(
     prefix=settings.api_prefix,
     tags=["platform-tenants"],
 )
+
+app.add_middleware(TenantContextMiddleware)
 
 
 @app.exception_handler(TenantAlreadyExistsError)
