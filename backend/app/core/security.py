@@ -1,11 +1,12 @@
 from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Optional
 from uuid import UUID
 
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
+from app.schemas.token import PlatformTokenPayload
 
 
 password_context = CryptContext(
@@ -32,7 +33,7 @@ def create_access_token(
         or timedelta(minutes=settings.platform_admin_access_token_minutes)
     )
 
-    payload: dict[str, Any] = {
+    payload = {
         "sub": str(subject),
         "username": username,
         "type": "platform_admin",
@@ -46,12 +47,13 @@ def create_access_token(
     )
 
 
-def decode_access_token(token: str) -> dict[str, Any]:
+def decode_access_token(token: str) -> PlatformTokenPayload:
     try:
-        return jwt.decode(
+        payload = jwt.decode(
             token,
             settings.platform_admin_jwt_secret,
             algorithms=[settings.platform_admin_jwt_algorithm],
         )
+        return PlatformTokenPayload.model_validate(payload)
     except JWTError as exc:
         raise ValueError("Invalid access token") from exc
