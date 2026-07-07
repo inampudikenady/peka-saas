@@ -1,4 +1,7 @@
-from sqlalchemy import Boolean, String
+from datetime import datetime
+from typing import Optional
+
+from sqlalchemy import Boolean, DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Entity
@@ -28,6 +31,22 @@ class PlatformAdmin(Entity):
 
     full_name: Mapped[str] = mapped_column(
         String(255),
+        nullable=False,
+    )
+
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+
+    failed_login_attempts: Mapped[int] = mapped_column(
+        default=0,
+        nullable=False,
+    )
+
+    locked: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
         nullable=False,
     )
 
