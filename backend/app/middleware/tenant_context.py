@@ -1,13 +1,12 @@
 import logging
-from typing import Optional
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 
 from app.core.logging import tenant_id_ctx
-from app.db.session import SessionLocal
-from app.repositories.tenant_repository import TenantRepository
+from app.core.tenant_registry import tenant_registry
+from app.services.tenant_resolver import TenantResolver
 
 logger = logging.getLogger(__name__)
 
@@ -21,21 +20,11 @@ SKIP_PATH_PREFIXES = (
 )
 
 
-def extract_subdomain(host: str) -> Optional[str]:
-    hostname = host.split(":", 1)[0].lower()
-
-    if hostname in {"localhost", "127.0.0.1"}:
-        return None
-
-    parts = hostname.split(".")
-
-    if len(parts) < 3:
-        return None
-
-    return hostname
-
-
 class TenantContextMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app) -> None:
+        super().__init__(app)
+        self.resolver = TenantResolver(tenant_registry)
+
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
 
@@ -43,28 +32,24 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         host = request.headers.get("host", "")
-        subdomain = extract_subdomain(host)
-
+        tenant_context = self.resolver.resolve_from_host(host)
         token = None
 
-        if subdomain:
-            db = SessionLocal()
-            try:
-                repository = TenantRepository(db)
-                tenant = repository.get_by_subdomain(subdomain)
+        if tenant_context is not None:
+            request.state.tenant_context = tenant_context
+            request.state.tenant_id = tenant_context.tenant_id
+            token = tenant_id_ctx.set(str(tenant_context.tenant_id))
 
-                if tenant:
-                    request.state.tenant = tenant
-                    request.state.tenant_id = tenant.id
-                    token = tenant_id_ctx.set(str(tenant.id))
-                    logger.info("Resolved tenant '%s' from host '%s'", tenant.slug, host)
-                else:
-                    logger.warning("No tenant found for host '%s'", host)
-            finally:
-                db.close()
+            logger.info(
+                "Resolved tenant '%s' from host '%s'",
+                tenant_context.slug,
+                tenant_context.hostname,
+            )
+        else:
+            logger.warning("No tenant found for host '%s'", host)
 
         try:
             return await call_next(request)
         finally:
-            if token:
+            if token is not None:
                 tenant_id_ctx.reset(token)

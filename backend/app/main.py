@@ -7,6 +7,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.api.routes.platform.tenants import router as platform_tenants_router
 from app.api.routes.platform.auth import router as platform_auth_router
+from app.core.tenant_registry import tenant_registry
+from app.db.session import SessionLocal
+from app.services.tenant_registry_manager import TenantRegistryManager
 
 from app.core.exceptions import (
     TenantAlreadyExistsError,
@@ -100,6 +103,12 @@ async def startup_event() -> None:
         settings.app_version,
         settings.environment,
     )
+
+    db = SessionLocal()
+    try:
+        TenantRegistryManager(tenant_registry).load(db)
+    finally:
+        db.close()
 
 
 @app.get("/health")
