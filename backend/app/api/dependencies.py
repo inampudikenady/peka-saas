@@ -15,6 +15,8 @@ from app.services.tenant_registry_manager import TenantRegistryManager
 from app.services.tenant_bootstrap_service import TenantBootstrapService
 from app.services.tenant_account_activation_service import TenantAccountActivationService
 from app.services.tenant_service import TenantService
+from app.services.tenant_sso_service import TenantSSOService
+from app.services.oidc_discovery_service import OIDCDiscoveryService
 
 
 def get_tenant_service(
@@ -43,4 +45,14 @@ def get_tenant_account_activation_service(
         invite_repository=TenantAdminInviteRepository(db),
         user_repository=TenantUserRepository(db),
         tenant_repository=TenantRepository(db),
+    )
+
+
+def get_tenant_sso_service(
+    db: Session = Depends(get_db),
+) -> TenantSSOService:
+    return TenantSSOService(
+        repository=TenantSSORepository(db),
+        tenant_repository=TenantRepository(db),
+        discovery_service=OIDCDiscoveryService(),
     )

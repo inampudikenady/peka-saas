@@ -1,48 +1,83 @@
 import logging
+from uuid import UUID
 
 from app.models.tenant_sso_config import TenantSSOConfig
+from app.core.url_builder import build_tenant_auth_callback_url
+from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_sso_repository import TenantSSORepository
+from app.schemas.tenant_sso import TenantSSOConfigUpdate
+from app.services.oidc_discovery_service import OIDCDiscoveryService
 
 logger = logging.getLogger(__name__)
 
 
 class TenantSSOService:
-    def __init__(self, repository: TenantSSORepository) -> None:
+    def __init__(
+        self,
+        repository: TenantSSORepository,
+        tenant_repository: TenantRepository,
+        discovery_service: OIDCDiscoveryService,
+    ) -> None:
         self.repository = repository
+        self.tenant_repository = tenant_repository
+        self.discovery_service = discovery_service
 
-    def get(self, tenant_id):
+    def get(self, tenant_id: UUID) -> TenantSSOConfig | None:
         return self.repository.get_by_tenant_id(tenant_id)
 
-    def upsert(self, config: TenantSSOConfig) -> TenantSSOConfig:
-        existing = self.repository.get_by_tenant_id(config.tenant_id)
+    def upsert(
+        self,
+        tenant_id: UUID,
+        payload: TenantSSOConfigUpdate,
+    ) -> TenantSSOConfig:
+        discovery = self.discovery_service.discover(payload.issuer_url)
+        existing = self.repository.get_by_tenant_id(tenant_id)
+
+        tenant = self.tenant_repository.get_by_id(tenant_id)
+        if tenant is None:
+            raise ValueError(f"Tenant '{tenant_id}' was not found.")
+
+        redirect_uri = build_tenant_auth_callback_url(
+            slug=tenant.slug,
+            hostname=tenant.subdomain,
+        )
 
         try:
             if existing is None:
-                result = self.repository.add(config)
+                result = TenantSSOConfig(
+                    tenant_id=tenant_id,
+                    provider=payload.provider,
+                    issuer_url=discovery.issuer,
+                    client_id=payload.client_id,
+                    client_secret_encrypted=payload.client_secret,
+                    authorization_endpoint=discovery.authorization_endpoint,
+                    token_endpoint=discovery.token_endpoint,
+                    jwks_uri=discovery.jwks_uri,
+                    redirect_uri=redirect_uri,
+                    scopes=payload.scopes,
+                    enabled=payload.enabled,
+                )
+                result = self.repository.add(result)
             else:
-                existing.provider = config.provider
-                existing.issuer_url = config.issuer_url
-                existing.client_id = config.client_id
-                existing.client_secret_encrypted = config.client_secret_encrypted
-                existing.authorization_endpoint = config.authorization_endpoint
-                existing.token_endpoint = config.token_endpoint
-                existing.jwks_uri = config.jwks_uri
-                existing.redirect_uri = config.redirect_uri
-                existing.scopes = config.scopes
-                existing.enabled = config.enabled
+                existing.provider = payload.provider
+                existing.issuer_url = discovery.issuer
+                existing.client_id = payload.client_id
+                existing.client_secret_encrypted = payload.client_secret
+                existing.authorization_endpoint = discovery.authorization_endpoint
+                existing.token_endpoint = discovery.token_endpoint
+                existing.jwks_uri = discovery.jwks_uri
+                existing.redirect_uri = redirect_uri
+                existing.scopes = payload.scopes
+                existing.enabled = payload.enabled
                 result = existing
 
             self.repository.commit()
             self.repository.refresh(result)
 
-            logger.info("Updated SSO configuration for tenant %s", config.tenant_id)
-
+            logger.info("Updated SSO configuration for tenant %s", tenant_id)
             return result
 
         except Exception:
             self.repository.rollback()
-            logger.exception(
-                "Failed to update SSO configuration for tenant %s",
-                config.tenant_id,
-            )
+            logger.exception("Failed to update SSO configuration for tenant %s", tenant_id)
             raise

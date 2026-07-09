@@ -21,3 +21,11 @@ def build_tenant_admin_setup_url(
 ) -> str:
     tenant_url = build_tenant_url(slug=slug, hostname=hostname)
     return f"{tenant_url.rstrip('/')}/setup-admin?token={token}"
+
+
+def build_tenant_auth_callback_url(
+    slug: str,
+    hostname: str | None = None,
+) -> str:
+    tenant_url = build_tenant_url(slug=slug, hostname=hostname)
+    return f"{tenant_url.rstrip('/')}/api/v1/tenant/auth/callback"

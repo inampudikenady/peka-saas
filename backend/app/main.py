@@ -11,6 +11,7 @@ from app.api.routes.tenant.auth import router as tenant_auth_router
 from app.core.tenant_registry import tenant_registry
 from app.db.session import SessionLocal
 from app.services.tenant_registry_manager import TenantRegistryManager
+from app.api.routes.tenant.security import router as tenant_security_router
 
 from app.core.exceptions import (
     TenantAlreadyExistsError,
@@ -53,6 +54,11 @@ app.include_router(
     tags=["tenant-auth"],
 )
 
+app.include_router(
+    tenant_security_router,
+    prefix=settings.api_prefix,
+    tags=["tenant-security"],
+)
 app.add_middleware(TenantContextMiddleware)
 
 
