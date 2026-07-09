@@ -13,7 +13,10 @@ class TenantCreate(BaseModel):
     display_name: str = Field(..., min_length=2, max_length=255)
     primary_domain: Optional[str] = Field(default=None, max_length=255)
     subdomain: Optional[str] = Field(default=None, max_length=255)
+    tenant_url: Optional[str] = Field(default=None, max_length=500)
     timezone: str = Field(default="UTC", max_length=100)
+    initial_admin_email: str = Field(..., max_length=255)
+    initial_admin_full_name: str = Field(..., min_length=2, max_length=255)
 
 
 class TenantResponse(BaseModel):
@@ -26,6 +29,12 @@ class TenantResponse(BaseModel):
     status: TenantStatus
     primary_domain: Optional[str]
     subdomain: Optional[str]
+    tenant_url: Optional[str]
     timezone: str
     created_at: datetime
     updated_at: datetime
+
+
+class TenantCreateResponse(BaseModel):
+    tenant: TenantResponse
+    admin_setup_link: str

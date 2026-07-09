@@ -16,3 +16,27 @@ class TenantDomainAlreadyExistsError(TenantError):
 
 class TenantNotFoundError(TenantError):
     """Raised when the requested tenant cannot be found."""
+
+
+class TenantInviteError(PEKAError):
+    """Base exception for tenant invite operations."""
+
+
+class InvalidTenantInviteTokenError(TenantInviteError):
+    """Raised when a tenant invite token is invalid."""
+
+
+class TenantInviteAlreadyUsedError(TenantInviteError):
+    """Raised when a tenant invite token has already been used."""
+
+
+class TenantInviteExpiredError(TenantInviteError):
+    """Raised when a tenant invite token has expired."""
+
+
+class TenantUserAlreadyExistsError(TenantInviteError):
+    """Raised when a tenant user already exists for the invite."""
+
+
+class TenantUsernameAlreadyExistsError(TenantInviteError):
+    """Raised when a generated tenant username already exists."""

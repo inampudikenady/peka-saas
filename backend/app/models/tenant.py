@@ -55,6 +55,13 @@ class Tenant(Entity):
         nullable=True,
     )
 
+    tenant_url: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        unique=True,
+        index=True,
+        nullable=True,
+    )
+
     timezone: Mapped[str] = mapped_column(
         String(100),
         default="UTC",

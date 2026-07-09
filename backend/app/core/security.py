@@ -47,6 +47,32 @@ def create_access_token(
     )
 
 
+def create_tenant_access_token(
+    subject: UUID,
+    username: str,
+    tenant_id: UUID,
+    expires_delta: Optional[timedelta] = None,
+) -> str:
+    expires_at = datetime.utcnow() + (
+        expires_delta
+        or timedelta(minutes=settings.platform_admin_access_token_minutes)
+    )
+
+    payload = {
+        "sub": str(subject),
+        "username": username,
+        "tenant_id": str(tenant_id),
+        "type": "tenant_user",
+        "exp": expires_at,
+    }
+
+    return jwt.encode(
+        payload,
+        settings.platform_admin_jwt_secret,
+        algorithm=settings.platform_admin_jwt_algorithm,
+    )
+
+
 def decode_access_token(token: str) -> PlatformTokenPayload:
     try:
         payload = jwt.decode(

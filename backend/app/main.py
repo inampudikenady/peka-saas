@@ -7,6 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from app.api.routes.platform.tenants import router as platform_tenants_router
 from app.api.routes.platform.auth import router as platform_auth_router
+from app.api.routes.tenant.auth import router as tenant_auth_router
 from app.core.tenant_registry import tenant_registry
 from app.db.session import SessionLocal
 from app.services.tenant_registry_manager import TenantRegistryManager
@@ -44,6 +45,12 @@ app.include_router(
     platform_tenants_router,
     prefix=settings.api_prefix,
     tags=["platform-tenants"],
+)
+
+app.include_router(
+    tenant_auth_router,
+    prefix=settings.api_prefix,
+    tags=["tenant-auth"],
 )
 
 app.add_middleware(TenantContextMiddleware)

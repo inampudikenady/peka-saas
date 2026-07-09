@@ -20,6 +20,11 @@ class Settings(BaseSettings):
 
     api_prefix: str = "/api/v1"
 
+    tenant_url_scheme: str = "https"
+    tenant_base_domain: str = "peka.com"
+    tenant_url_mode: str = "subdomain"
+    tenant_dev_base_url: str = "https://kenady-macbook-air.tailce91e3.ts.net"
+
     database_url: str = Field(
         default="postgresql+psycopg://peka:peka@localhost:5432/peka_platform"
     )
