@@ -15,13 +15,10 @@ class TenantRegistryManager:
         self.registry = registry
 
     def add(self, tenant: Tenant) -> None:
-        if tenant.subdomain is None:
-            return
-
         definition = TenantDefinition(
             tenant_id=tenant.id,
             slug=tenant.slug,
-            hostname=tenant.subdomain,
+            hostname=tenant.subdomain or "",
             enabled=tenant.status == TenantStatus.ACTIVE,
         )
         self.registry.add(definition)

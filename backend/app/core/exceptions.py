@@ -40,3 +40,19 @@ class TenantUserAlreadyExistsError(TenantInviteError):
 
 class TenantUsernameAlreadyExistsError(TenantInviteError):
     """Raised when a generated tenant username already exists."""
+
+
+class OIDCError(PEKAError):
+    """Base exception for safe, domain-level OIDC failures."""
+
+
+class OIDCAuthSessionError(OIDCError):
+    """Raised when an OIDC state session cannot be validated."""
+
+
+class OIDCConfigurationError(OIDCError):
+    """Raised when the tenant OIDC configuration is incomplete."""
+
+
+class OIDCAuthenticationError(OIDCError):
+    """Raised when the provider response or ID token cannot be authenticated."""

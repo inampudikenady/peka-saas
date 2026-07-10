@@ -16,7 +16,15 @@ from app.services.tenant_bootstrap_service import TenantBootstrapService
 from app.services.tenant_account_activation_service import TenantAccountActivationService
 from app.services.tenant_service import TenantService
 from app.services.tenant_sso_service import TenantSSOService
+from app.repositories.tenant_oidc_auth_session_repository import (
+    TenantOIDCAuthSessionRepository,
+)
 from app.services.oidc_discovery_service import OIDCDiscoveryService
+from app.services.oidc_authentication_service import OIDCAuthenticationService
+from app.services.oidc_user_service import OIDCUserService
+from app.services.tenant_oidc_auth_session_service import (
+    TenantOIDCAuthSessionService,
+)
 
 
 def get_tenant_service(
@@ -55,4 +63,24 @@ def get_tenant_sso_service(
         repository=TenantSSORepository(db),
         tenant_repository=TenantRepository(db),
         discovery_service=OIDCDiscoveryService(),
+    )
+
+
+def get_tenant_oidc_auth_session_service(
+    db: Session = Depends(get_db),
+) -> TenantOIDCAuthSessionService:
+    return TenantOIDCAuthSessionService(
+        repository=TenantOIDCAuthSessionRepository(db),
+    )
+
+
+def get_oidc_authentication_service() -> OIDCAuthenticationService:
+    return OIDCAuthenticationService()
+
+
+def get_oidc_user_service(
+    db: Session = Depends(get_db),
+) -> OIDCUserService:
+    return OIDCUserService(
+        repository=TenantUserRepository(db),
     )
