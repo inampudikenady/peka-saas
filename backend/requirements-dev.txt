@@ -1,0 +1,5 @@
+-r requirements.txt
+pytest==9.1.1
+ruff==0.12.3
+mypy==1.16.1
+sqlalchemy[mypy]==2.0.41

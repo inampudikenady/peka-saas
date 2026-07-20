@@ -9,3 +9,7 @@ class PlatformTokenPayload(BaseModel):
     username: str
     type: str
     exp: datetime
+
+
+class TenantTokenPayload(PlatformTokenPayload):
+    tenant_id: UUID

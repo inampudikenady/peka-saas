@@ -1,0 +1,62 @@
+export type PlatformTokenResponse = { access_token: string; token_type: string };
+export type PlatformRole = "platform_admin" | "platform_readonly";
+export type PlatformUser = { id: string; username: string; email: string; full_name: string; role: PlatformRole; is_active: boolean; last_login_at: string | null; created_at: string; updated_at: string };
+export type PlatformUserInput = { username: string; email: string; full_name: string; role: PlatformRole };
+export type PlatformInvitation = { user: PlatformUser; setup_link: string; expires_at: string };
+export type TenantStatus = "active" | "suspended" | "retired";
+export type Tenant = {
+  id: string; slug: string; name: string; display_name: string;
+  status: TenantStatus; primary_domain: string | null; subdomain: string | null;
+  tenant_url: string | null; timezone: string; created_at: string; updated_at: string;
+};
+export type TenantCreate = {
+  slug: string; name: string; display_name: string; primary_domain?: string | null;
+  timezone: string; initial_admin_email: string; initial_admin_full_name: string;
+};
+export type TenantCreateResponse = { tenant: Tenant; admin_setup_link: string };
+export type TenantAdminInvite = {
+  email: string; full_name: string; expires_at: string; used_at: string | null;
+  status: "pending" | "used" | "expired"; setup_link: string | null;
+};
+export type TenantPlatformSummary = {
+  sso_enabled: boolean; sso_redirect_uri: string | null;
+  local_admin_active: boolean; active_user_count: number;
+};
+export type TenantMe = {
+  id: string; email: string; full_name: string; auth_source: "local" | "sso"; tenant_id: string;
+  tenant_slug: string; tenant_name: string;
+  role: "tenant_admin" | "tenant_user";
+  username: string | null; is_active: boolean; last_login_at: string | null;
+};
+export type TenantUser = { id: string; tenant_id: string; username: string | null; email: string; full_name: string; auth_source: "local" | "sso"; role: "tenant_admin" | "tenant_user"; is_active: boolean; last_login_at: string | null };
+export type TenantUserInvitation = { user: TenantUser; setup_link: string; expires_at: string };
+export type PlatformSettings = { platform_name:string;environment:string;default_timezone:string;application_version:string;support_contact:string|null;platform_base_url:string;tenant_base_url:string;url_mode:string;public_frontend_url:string;api_base_path:string };
+export type SSOProvider = "entra_id" | "okta" | "generic_oidc";
+export type TenantSSOConfig = {
+  provider: SSOProvider; issuer_url: string | null; client_id: string | null;
+  authorization_endpoint: string | null; token_endpoint: string | null;
+  jwks_uri: string | null; redirect_uri: string | null; scopes: string; enabled: boolean;
+};
+export type TenantSSOUpdate = {
+  provider: SSOProvider; issuer_url: string; client_id: string;
+  client_secret?: string | null; scopes: string; enabled: boolean;
+};
+export type ConnectorStatus = "connected" | "in_sync" | "degraded" | "out_of_sync" | "disconnected" | "authentication_failed" | "retired";
+export type ManagedConnector = {
+  id: string; tenant_id: string; tenant_name: string | null; tenant_slug: string | null;
+  name: string; instance_id: string; version: string; environment: string; status: ConnectorStatus;
+  registered_at: string; last_heartbeat_at: string | null; last_seen_at: string | null;
+  heartbeat_interval_seconds: number; source_total: number; source_healthy: number;
+  source_unhealthy: number; source_disabled: number; retired_at: string | null;
+};
+export type ConnectorHeartbeat = {
+  received_at: string; reported_at: string; version: string; reported_status: string; uptime_seconds: number;
+  source_total: number; source_healthy: number; source_unhealthy: number; source_disabled: number; accepted: boolean;
+};
+export type ConnectorEvent = { event_type: string; occurred_at: string; detail: string | null };
+export type ConnectorDetail = ManagedConnector & { capabilities: string[]; recent_heartbeats: ConnectorHeartbeat[]; recent_events: ConnectorEvent[] };
+export type RegistrationToken = {
+  id: string; tenant_id: string; expires_at: string; used_at: string | null; created_by_user_id: string | null;
+  created_at: string; revoked_at: string | null; intended_connector_name: string | null; status: "active" | "used" | "expired" | "revoked";
+};
+export type RegistrationTokenCreated = RegistrationToken & { registration_token: string };

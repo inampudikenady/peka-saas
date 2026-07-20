@@ -56,3 +56,11 @@ class OIDCConfigurationError(OIDCError):
 
 class OIDCAuthenticationError(OIDCError):
     """Raised when the provider response or ID token cannot be authenticated."""
+
+
+class TenantAuthenticationError(PEKAError):
+    """Raised when tenant credentials cannot be authenticated."""
+
+
+class TenantLifecycleError(TenantError):
+    """Raised when a tenant lifecycle transition is not allowed."""

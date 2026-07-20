@@ -5,12 +5,14 @@ from app.db.session import get_db
 from app.core.tenant_registry import tenant_registry
 
 from app.repositories.platform_admin_repository import PlatformAdminRepository
+from app.repositories.platform_admin_invite_repository import PlatformAdminInviteRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_admin_invite_repository import TenantAdminInviteRepository
 from app.repositories.tenant_user_repository import TenantUserRepository
 from app.repositories.tenant_sso_repository import TenantSSORepository
 
 from app.services.platform_admin_service import PlatformAdminService
+from app.services.platform_user_service import PlatformUserService
 from app.services.tenant_registry_manager import TenantRegistryManager
 from app.services.tenant_bootstrap_service import TenantBootstrapService
 from app.services.tenant_account_activation_service import TenantAccountActivationService
@@ -25,6 +27,14 @@ from app.services.oidc_user_service import OIDCUserService
 from app.services.tenant_oidc_auth_session_service import (
     TenantOIDCAuthSessionService,
 )
+from app.services.tenant_local_authentication_service import (
+    TenantLocalAuthenticationService,
+)
+from app.services.tenant_admin_invite_service import TenantAdminInviteService
+from app.services.tenant_platform_summary_service import TenantPlatformSummaryService
+from app.services.tenant_user_management_service import TenantUserManagementService
+from app.repositories.connector_repository import ConnectorRepository
+from app.services.connector_service import ConnectorService
 
 
 def get_tenant_service(
@@ -44,6 +54,15 @@ def get_platform_admin_service(
 ) -> PlatformAdminService:
     repository = PlatformAdminRepository(db)
     return PlatformAdminService(repository)
+
+
+def get_platform_user_service(
+    db: Session = Depends(get_db),
+) -> PlatformUserService:
+    return PlatformUserService(
+        PlatformAdminRepository(db),
+        PlatformAdminInviteRepository(db),
+    )
 
 
 def get_tenant_account_activation_service(
@@ -84,3 +103,34 @@ def get_oidc_user_service(
     return OIDCUserService(
         repository=TenantUserRepository(db),
     )
+
+
+def get_tenant_local_authentication_service(
+    db: Session = Depends(get_db),
+) -> TenantLocalAuthenticationService:
+    return TenantLocalAuthenticationService(TenantUserRepository(db))
+
+
+def get_tenant_admin_invite_service(
+    db: Session = Depends(get_db),
+) -> TenantAdminInviteService:
+    return TenantAdminInviteService(TenantAdminInviteRepository(db))
+
+
+def get_tenant_platform_summary_service(
+    db: Session = Depends(get_db),
+) -> TenantPlatformSummaryService:
+    return TenantPlatformSummaryService(
+        sso_repository=TenantSSORepository(db),
+        user_repository=TenantUserRepository(db),
+    )
+
+
+def get_tenant_user_management_service(
+    db: Session = Depends(get_db),
+) -> TenantUserManagementService:
+    return TenantUserManagementService(TenantUserRepository(db), TenantAdminInviteRepository(db), TenantRepository(db))
+
+
+def get_connector_service(db: Session = Depends(get_db)) -> ConnectorService:
+    return ConnectorService(ConnectorRepository(db), TenantRepository(db))

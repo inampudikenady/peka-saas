@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import UUID
 from app.core.exceptions import (
     InvalidTenantInviteTokenError,
     TenantInviteAlreadyUsedError,
@@ -7,9 +8,8 @@ from app.core.exceptions import (
     TenantUsernameAlreadyExistsError,
 )
 
-from app.core.security import create_tenant_access_token, hash_password
-from app.models.tenant_user import TenantUser, TenantUserAuthSource
-from app.schemas.tenant_auth import TenantAuthResponse
+from app.core.security import hash_password
+from app.models.tenant_user import TenantUser, TenantUserAuthSource, TenantUserRole
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_admin_invite_repository import TenantAdminInviteRepository
 from app.repositories.tenant_user_repository import TenantUserRepository
@@ -31,7 +31,8 @@ class TenantAccountActivationService:
         self,
         token: str,
         password: str,
-    ) -> TenantAuthResponse:
+        expected_tenant_id: UUID,
+    ) -> TenantUser:
         token_hash = TenantAdminInviteService.hash_token(token)
         invite = self.invite_repository.get_by_token_hash(token_hash)
 
@@ -47,6 +48,24 @@ class TenantAccountActivationService:
         tenant = self.tenant_repository.get_by_id(invite.tenant_id)
         if tenant is None:
             raise InvalidTenantInviteTokenError("Invalid setup token.")
+
+        if tenant.id != expected_tenant_id:
+            raise InvalidTenantInviteTokenError("Invalid setup token.")
+
+        if invite.user_id is not None:
+            user = self.user_repository.get_by_id(invite.user_id)
+            if user is None or user.tenant_id != expected_tenant_id:
+                raise InvalidTenantInviteTokenError("Invalid setup token.")
+            try:
+                user.password_hash = hash_password(password)
+                user.is_active = True
+                invite.used_at = datetime.now(UTC)
+                self.user_repository.commit()
+                self.user_repository.refresh(user)
+                return user
+            except Exception:
+                self.user_repository.rollback()
+                raise
 
         username = f"admin_{tenant.slug}"
 
@@ -75,6 +94,7 @@ class TenantAccountActivationService:
             auth_source=TenantUserAuthSource.LOCAL,
             password_hash=hash_password(password),
             is_active=True,
+            role=TenantUserRole.TENANT_ADMIN,
         )
 
         try:
@@ -83,13 +103,7 @@ class TenantAccountActivationService:
             self.user_repository.commit()
             self.user_repository.refresh(created_user)
 
-            access_token = create_tenant_access_token(
-                subject=created_user.id,
-                username=created_user.username or created_user.email,
-                tenant_id=created_user.tenant_id,
-            )
-
-            return TenantAuthResponse(access_token=access_token)
+            return created_user
         except Exception:
             self.user_repository.rollback()
             raise

@@ -31,6 +31,10 @@ class TenantRepository(BaseRepository[Tenant]):
         )
         return list(self.db.scalars(stmt).all())
 
+    def list_all(self) -> list[Tenant]:
+        stmt = select(Tenant).order_by(Tenant.name)
+        return list(self.db.scalars(stmt).all())
+
     def exists_by_slug(self, slug: str) -> bool:
         return self.get_by_slug(slug) is not None
 

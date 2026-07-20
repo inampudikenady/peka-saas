@@ -1,0 +1,6 @@
+"use client";
+import Link from "next/link";
+import { CopyButton } from "@/components/copy-button";
+import { Button } from "@/components/ui/button";
+import type { Tenant, TenantAdminInvite } from "@/lib/types";
+export function TenantActionsMenu({ tenant, invite, onLifecycle }: { tenant: Tenant; invite: TenantAdminInvite | null; onLifecycle: () => Promise<void> }) { const url = tenant.tenant_url ?? `/t/${tenant.slug}`; const mailto = invite ? `mailto:${encodeURIComponent(invite.email)}?subject=${encodeURIComponent(`PEKA tenant ${tenant.display_name}`)}&body=${encodeURIComponent(`Your PEKA tenant portal is ${url}. Contact your platform administrator if you need a new setup invitation.`)}` : undefined; return <div className="flex flex-wrap gap-2"><Button asChild variant="outline" className="h-8 px-3"><a href={url} target="_blank" rel="noreferrer">Open portal</a></Button><Button asChild variant="outline" className="h-8 px-3"><Link href={`/platform/tenants/${tenant.slug}`}>Details</Link></Button><CopyButton value={url}/>{invite?.setup_link && <CopyButton value={invite.setup_link} label="Copy invitation"/>}{mailto && <Button asChild variant="ghost" className="h-8 px-3"><a href={mailto}>Email admin</a></Button>}<Button variant="ghost" className="h-8 px-3" onClick={onLifecycle}>{tenant.status === "active" ? "Deactivate" : "Reactivate"}</Button></div>; }

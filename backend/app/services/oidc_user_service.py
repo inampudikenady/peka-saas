@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 from uuid import UUID
 
-from app.models.tenant_user import TenantUser, TenantUserAuthSource
+from app.models.tenant_user import TenantUser, TenantUserAuthSource, TenantUserRole
 from app.repositories.tenant_user_repository import TenantUserRepository
 from app.services.oidc_authentication_service import OIDCUserIdentity
 
@@ -32,6 +32,7 @@ class OIDCUserService:
                     external_subject=identity.subject,
                     is_active=True,
                     last_login_at=datetime.now(UTC),
+                    role=TenantUserRole.TENANT_USER,
                 )
                 user = self.repository.add(user)
             else:

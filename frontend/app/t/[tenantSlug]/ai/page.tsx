@@ -1,0 +1,3 @@
+"use client";
+import { useParams } from "next/navigation"; import { ComingSoon } from "@/components/coming-soon"; import { TenantShell } from "@/components/tenant-shell"; import { useTenantUser } from "@/hooks/use-tenant-user";
+export default function AIPage() { const { tenantSlug } = useParams<{tenantSlug:string}>(); const {user}=useTenantUser(tenantSlug); if(!user)return <main className="p-8">Loading…</main>; return <TenantShell slug={tenantSlug} user={user} title="AI Assistant"><ComingSoon title="AI Assistant" description={`AI Assistant will be implemented in the next milestone for ${user.tenant_name}. Signed in as ${user.full_name} (${user.role}).`}/></TenantShell>; }

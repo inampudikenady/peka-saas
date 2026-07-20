@@ -33,6 +33,12 @@ class TenantRegistry:
             if definition is not None:
                 self._by_slug.pop(definition.slug.lower(), None)
 
+    def remove_by_slug(self, slug: str) -> None:
+        with self._lock:
+            definition = self._by_slug.pop(slug.lower(), None)
+            if definition is not None and definition.hostname:
+                self._by_host.pop(definition.hostname.lower(), None)
+
     def clear(self) -> None:
         with self._lock:
             self._by_host.clear()

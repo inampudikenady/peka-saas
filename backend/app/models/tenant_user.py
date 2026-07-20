@@ -13,6 +13,11 @@ class TenantUserAuthSource(str, enum.Enum):
     SSO = "sso"
 
 
+class TenantUserRole(str, enum.Enum):
+    TENANT_ADMIN = "tenant_admin"
+    TENANT_USER = "tenant_user"
+
+
 class TenantUser(Entity):
     __tablename__ = "tenant_users"
 
@@ -64,4 +69,10 @@ class TenantUser(Entity):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
+    )
+
+    role: Mapped[TenantUserRole] = mapped_column(
+        Enum(TenantUserRole, name="tenant_user_role"),
+        default=TenantUserRole.TENANT_USER,
+        nullable=False,
     )

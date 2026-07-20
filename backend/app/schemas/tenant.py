@@ -38,3 +38,19 @@ class TenantResponse(BaseModel):
 class TenantCreateResponse(BaseModel):
     tenant: TenantResponse
     admin_setup_link: str
+
+
+class TenantAdminInviteResponse(BaseModel):
+    email: str
+    full_name: str
+    expires_at: datetime
+    used_at: datetime | None
+    status: str
+    setup_link: str | None = None
+
+
+class TenantPlatformSummary(BaseModel):
+    sso_enabled: bool
+    sso_redirect_uri: str | None
+    local_admin_active: bool
+    active_user_count: int

@@ -1,0 +1,7 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* { box-sizing: border-box; }
+body { color: #18212f; background: #f8fafc; }
+button, a, input, select { -webkit-tap-highlight-color: transparent; }

@@ -7,7 +7,7 @@ class TenantSSOConfigUpdate(BaseModel):
     provider: SSOProvider = SSOProvider.GENERIC_OIDC
     issuer_url: str = Field(..., max_length=500)
     client_id: str = Field(..., max_length=255)
-    client_secret: str = Field(..., min_length=1, max_length=1000)
+    client_secret: str | None = Field(default=None, max_length=1000)
     scopes: str = Field(default="openid profile email", max_length=500)
     enabled: bool = False
 

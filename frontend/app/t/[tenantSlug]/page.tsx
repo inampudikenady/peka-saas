@@ -1,0 +1,6 @@
+"use client";
+import { useParams, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
+import { ApiError, tenantApi } from "@/lib/api";
+export default function TenantRootPage() { const { tenantSlug } = useParams<{ tenantSlug: string }>(); const router = useRouter(); const [notFound, setNotFound] = useState(false); const [error, setError] = useState(""); useEffect(() => { tenantApi.me(tenantSlug).then(() => router.replace(`/t/${tenantSlug}/ai`)).catch(e => { if (e instanceof ApiError && e.status === 401) router.replace(`/t/${tenantSlug}/login`); else if (e instanceof ApiError && e.status === 404) setNotFound(true); else setError(e instanceof Error ? e.message : "Tenant could not be resolved."); }); }, [router, tenantSlug]); if (notFound) return <main className="flex min-h-screen items-center justify-center p-6"><div className="max-w-md text-center"><h1 className="text-2xl font-semibold">Tenant not found</h1><p className="mt-2 text-sm text-slate-500">The tenant “{tenantSlug}” does not exist or is not currently available.</p></div></main>; if (error) return <main className="mx-auto max-w-lg p-8"><Alert>{error}</Alert></main>; return <main className="p-8 text-sm text-slate-500">Resolving tenant…</main>; }

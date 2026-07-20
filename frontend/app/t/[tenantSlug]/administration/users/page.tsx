@@ -1,0 +1,30 @@
+"use client";
+import { useEffect, useState } from "react";
+import { useParams } from "next/navigation";
+import { Alert } from "@/components/alert";
+import { CopyButton } from "@/components/copy-button";
+import { StatusBadge } from "@/components/status-badge";
+import { TenantAdministration } from "@/components/tenant-administration";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { tenantApi } from "@/lib/api";
+import type { TenantUser, TenantUserInvitation } from "@/lib/types";
+
+type InviteState = { data: TenantUserInvitation; kind: "setup" | "reset" };
+function emailText(invite: InviteState, tenant: string) {
+  const { user, setup_link } = invite.data;
+  if (invite.kind === "setup") return `Hello ${user.full_name},\n\nA PEKA account has been created for you.\n\nTenant:\n${tenant}\n\nUsername:\n${user.username}\n\nComplete your account:\n\n${setup_link}\n\nThis link expires in 24 hours and can only be used once.\n\nRegards,\nPEKA`;
+  return `Hello ${user.full_name},\n\nA password reset has been requested.\n\nReset your password:\n\n${setup_link}\n\nThis link expires in 24 hours and can only be used once.\n\nIf you did not request this, ignore this email.\n\nRegards,\nPEKA`;
+}
+
+export default function TenantUsersPage() {
+  const { tenantSlug } = useParams<{ tenantSlug: string }>();
+  const [users, setUsers] = useState<TenantUser[]>([]); const [error, setError] = useState(""); const [showCreate, setShowCreate] = useState(false); const [invite, setInvite] = useState<InviteState | null>(null);
+  const [form, setForm] = useState({ full_name: "", email: "", username: "", role: "tenant_user" as TenantUser["role"] });
+  useEffect(() => { void tenantApi.users(tenantSlug).then(setUsers).catch(e => setError(e.message)); }, [tenantSlug]);
+  const replace = (next: TenantUser) => setUsers(items => items.map(item => item.id === next.id ? next : item));
+  const text = invite ? emailText(invite, tenantSlug) : "";
+  const subject = invite?.kind === "setup" ? "Welcome to PEKA" : "Reset your PEKA password";
+  return <TenantAdministration title="Users"><div className="mb-5 flex justify-between"><div><h2 className="text-xl font-semibold">Tenant users</h2><p className="text-sm text-slate-500">Manage local and SSO identities.</p></div><Button onClick={() => setShowCreate(!showCreate)}>Create local user</Button></div>{error && <Alert>{error}</Alert>}{showCreate && <Card className="mb-5 p-5"><form className="grid gap-4 sm:grid-cols-2" onSubmit={async event => { event.preventDefault(); try { const data = await tenantApi.createUser(tenantSlug, form); setUsers(items => [...items, data.user]); setInvite({ data, kind: "setup" }); setShowCreate(false); } catch (caught) { setError(caught instanceof Error ? caught.message : "Creation failed."); } }}><Input placeholder="Full name" required value={form.full_name} onChange={e => setForm({...form, full_name:e.target.value})}/><Input type="email" placeholder="Email" required value={form.email} onChange={e => setForm({...form, email:e.target.value})}/><Input placeholder="Username" required value={form.username} onChange={e => setForm({...form, username:e.target.value})}/><select className="rounded border px-3" value={form.role} onChange={e => setForm({...form, role:e.target.value as TenantUser["role"]})}><option value="tenant_user">Tenant user</option><option value="tenant_admin">Tenant admin</option></select><Button>Create and generate setup link</Button></form></Card>}{invite && <div className="mb-5 rounded border border-amber-200 bg-amber-50 p-4"><p className="font-medium">One-time {invite.kind === "setup" ? "setup" : "password reset"} link</p><p className="text-sm">Expires {new Date(invite.data.expires_at).toLocaleString()}</p><code className="my-3 block overflow-x-auto bg-white p-2 text-xs">{invite.data.setup_link}</code><div className="flex flex-wrap gap-2"><CopyButton value={invite.data.setup_link}/><CopyButton value={text} label="Copy email"/><Button asChild><a href={`mailto:${encodeURIComponent(invite.data.user.email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(text)}`}>Open email app</a></Button></div></div>}<Card className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b bg-slate-50"><tr>{["User","Username","Auth source","Role","Status","Last login","Actions"].map(label => <th className="px-4 py-3" key={label}>{label}</th>)}</tr></thead><tbody>{users.map(user => <tr className="border-b" key={user.id}><td className="px-4 py-4"><b>{user.full_name}</b><div className="text-xs">{user.email}</div></td><td className="px-4">{user.auth_source === "local" ? user.username : "—"}</td><td className="px-4 uppercase">{user.auth_source}</td><td className="px-4"><select value={user.role} onChange={async e => { try { replace(await tenantApi.setUserRole(tenantSlug,user.id,e.target.value as TenantUser["role"])); } catch(caught) { setError(caught instanceof Error ? caught.message : "Update failed."); } }}><option value="tenant_admin">Tenant admin</option><option value="tenant_user">Tenant user</option></select></td><td className="px-4"><StatusBadge status={user.is_active ? "Active" : "Inactive"}/></td><td className="px-4">{user.last_login_at ? new Date(user.last_login_at).toLocaleString() : "Never"}</td><td className="px-4"><div className="flex items-center gap-2"><Button variant="outline" onClick={async () => { try { replace(await tenantApi.setUserActive(tenantSlug,user.id,!user.is_active)); } catch(caught) { setError(caught instanceof Error ? caught.message : "Update failed."); } }}>{user.is_active ? "Deactivate" : "Activate"}</Button>{user.auth_source === "local" ? <Button variant="ghost" onClick={async () => { try { setInvite({data:await tenantApi.resetUserPassword(tenantSlug,user.id),kind:"reset"}); } catch(caught) { setError(caught instanceof Error ? caught.message : "Reset failed."); } }}>Reset password</Button> : <span className="text-xs text-slate-500">Password managed by identity provider</span>}</div></td></tr>)}</tbody></table></Card></TenantAdministration>;
+}

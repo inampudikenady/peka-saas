@@ -33,6 +33,12 @@ class TenantSSOService:
         discovery = self.discovery_service.discover(payload.issuer_url)
         existing = self.repository.get_by_tenant_id(tenant_id)
 
+        if (
+            not payload.client_secret
+            and (existing is None or not existing.client_secret_encrypted)
+        ):
+            raise ValueError("Client secret is required for initial SSO configuration.")
+
         tenant = self.tenant_repository.get_by_id(tenant_id)
         if tenant is None:
             raise ValueError(f"Tenant '{tenant_id}' was not found.")
@@ -62,7 +68,8 @@ class TenantSSOService:
                 existing.provider = payload.provider
                 existing.issuer_url = discovery.issuer
                 existing.client_id = payload.client_id
-                existing.client_secret_encrypted = payload.client_secret
+                if payload.client_secret:
+                    existing.client_secret_encrypted = payload.client_secret
                 existing.authorization_endpoint = discovery.authorization_endpoint
                 existing.token_endpoint = discovery.token_endpoint
                 existing.jwks_uri = discovery.jwks_uri

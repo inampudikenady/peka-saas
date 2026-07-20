@@ -3,10 +3,11 @@ import logging
 from app.core.exceptions import (
     TenantAlreadyExistsError,
     TenantDomainAlreadyExistsError,
+    TenantLifecycleError,
     TenantNotFoundError,
 )
 from app.core.url_builder import build_platform_hostname, build_tenant_url
-from app.models.tenant import Tenant
+from app.models.tenant import Tenant, TenantStatus
 from app.repositories.tenant_repository import TenantRepository
 from app.schemas.tenant import TenantCreate, TenantCreateResponse
 from app.services.tenant_registry_manager import TenantRegistryManager
@@ -98,5 +99,31 @@ class TenantService:
         return tenant
 
     def list_active(self) -> list[Tenant]:
-        logger.info("Listing active tenants")
-        return self.repository.list_active()
+        logger.info("Listing tenants")
+        return self.repository.list_all()
+
+    def set_active(self, slug: str, active: bool) -> Tenant:
+        tenant = self.get_by_slug_or_raise(slug)
+        tenant.status = TenantStatus.ACTIVE if active else TenantStatus.SUSPENDED
+        try:
+            self.repository.commit()
+            self.repository.refresh(tenant)
+            self.registry_manager.add(tenant)
+            return tenant
+        except Exception:
+            self.repository.rollback()
+            raise
+
+    def delete(self, slug: str, confirmation: str) -> None:
+        tenant = self.get_by_slug_or_raise(slug)
+        if confirmation != slug:
+            raise TenantLifecycleError("Tenant deletion confirmation does not match.")
+        if tenant.status == TenantStatus.ACTIVE:
+            raise TenantLifecycleError("Deactivate the tenant before deleting it.")
+        try:
+            self.repository.delete(tenant)
+            self.repository.commit()
+            self.registry_manager.registry.remove_by_slug(slug)
+        except Exception:
+            self.repository.rollback()
+            raise

@@ -1,0 +1,1 @@
+"use client"; import { ComingSoon } from "@/components/coming-soon"; import { TenantAdministration } from "@/components/tenant-administration"; export default function Page(){return <TenantAdministration title="Audit"><ComingSoon title="Audit" description="Tenant audit is deferred to a future milestone."/></TenantAdministration>}

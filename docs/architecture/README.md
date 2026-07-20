@@ -30,3 +30,5 @@ Example:
 - 0003-connector-architecture.md
 
 New ADRs should never modify the intent of previous accepted decisions. If a decision changes, create a new ADR that supersedes the earlier one.
+
+Connector lifecycle decisions are recorded in ADRs 0004–0008. ADR-0007 explicitly supersedes ADR-0003's original coarse status labels and fixed warning/offline thresholds.

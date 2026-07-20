@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     tenant_base_domain: str = "peka.com"
     tenant_url_mode: str = "subdomain"
     tenant_dev_base_url: str = "https://kenady-macbook-air.tailce91e3.ts.net"
+    platform_frontend_base_url: str = "https://kenady-macbook-air.tailce91e3.ts.net"
+    default_timezone: str = "UTC"
+    support_contact: str | None = None
 
     database_url: str = Field(
         default="postgresql+psycopg://peka:peka@localhost:5432/peka_platform"
@@ -34,6 +37,9 @@ class Settings(BaseSettings):
     platform_admin_jwt_secret: str = Field(default="change-me-local-only")
     platform_admin_jwt_algorithm: str = Field(default="HS256")
     platform_admin_access_token_minutes: int = Field(default=60)
+    tenant_access_token_minutes: int = Field(default=60)
+    tenant_session_cookie_name: str = Field(default="peka_tenant_session")
+    connector_maintenance_interval_seconds: int = Field(default=60, ge=10)
 
 
 @lru_cache

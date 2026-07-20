@@ -50,6 +50,6 @@ class TenantBootstrapService:
             token=raw_token,
             hostname=tenant.subdomain,
         )
-        logger.info("Generated tenant admin setup link for tenant '%s': %s", tenant.slug, setup_link)
+        logger.info("Generated tenant admin setup link for tenant '%s'", tenant.slug)
 
         return TenantBootstrapResult(setup_link=setup_link)

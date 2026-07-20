@@ -8,3 +8,4 @@ class TenantDefinition:
     slug: str
     hostname: str
     enabled: bool
+    display_name: str | None = None

@@ -158,6 +158,8 @@ The connector communicates with the SaaS using outbound HTTPS only.
 - Connector registration
 - Connector lifecycle management
 
+Implemented foundation: connector registration credentials, registration, authenticated heartbeats, derived status, retention, platform inventory, and tenant management. Secret rotation, distributed rate limiting, heartbeat aggregation, and operational scheduler extraction remain hardening work.
+
 ## Phase 2 — Connector Platform
 
 - Docker connector

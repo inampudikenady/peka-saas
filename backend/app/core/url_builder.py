@@ -29,3 +29,9 @@ def build_tenant_auth_callback_url(
 ) -> str:
     tenant_url = build_tenant_url(slug=slug, hostname=hostname)
     return f"{tenant_url.rstrip('/')}/api/v1/tenant/auth/callback"
+
+
+def build_tenant_dashboard_path(slug: str) -> str:
+    if settings.tenant_url_mode == "path":
+        return f"/t/{slug}/ai"
+    return "/ai"

@@ -1,8 +1,10 @@
 from fastapi import APIRouter, Depends
 
+from app.api.auth import get_current_tenant_admin
 from app.api.dependencies import get_tenant_sso_service
 from app.api.tenant_context import get_current_tenant_context
 from app.core.tenant_context import TenantContext
+from app.models.tenant_user import TenantUser
 from app.schemas.tenant_sso import (
     TenantSSOConfigResponse,
     TenantSSOConfigUpdate,
@@ -18,6 +20,7 @@ router = APIRouter(prefix="/tenant/admin/security")
 )
 def get_sso_configuration(
     tenant_context: TenantContext = Depends(get_current_tenant_context),
+    tenant_admin: TenantUser = Depends(get_current_tenant_admin),
     service: TenantSSOService = Depends(get_tenant_sso_service),
 ):
     return service.get(tenant_context.tenant_id)
@@ -30,6 +33,7 @@ def get_sso_configuration(
 def update_sso_configuration(
     payload: TenantSSOConfigUpdate,
     tenant_context: TenantContext = Depends(get_current_tenant_context),
+    tenant_admin: TenantUser = Depends(get_current_tenant_admin),
     service: TenantSSOService = Depends(get_tenant_sso_service),
 ):
     return service.upsert(

@@ -20,6 +20,7 @@ class TenantRegistryManager:
             slug=tenant.slug,
             hostname=tenant.subdomain or "",
             enabled=tenant.status == TenantStatus.ACTIVE,
+            display_name=tenant.display_name,
         )
         self.registry.add(definition)
         logger.info("Added tenant '%s' to tenant registry", tenant.slug)

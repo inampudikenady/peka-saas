@@ -1,10 +1,17 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, String
+import enum
+
+from sqlalchemy import Boolean, DateTime, Enum, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Entity
+
+
+class PlatformAdminRole(str, enum.Enum):
+    PLATFORM_ADMIN = "platform_admin"
+    PLATFORM_READONLY = "platform_readonly"
 
 
 class PlatformAdmin(Entity):
@@ -24,9 +31,9 @@ class PlatformAdmin(Entity):
         nullable=False,
     )
 
-    password_hash: Mapped[str] = mapped_column(
+    password_hash: Mapped[str | None] = mapped_column(
         String(255),
-        nullable=False,
+        nullable=True,
     )
 
     full_name: Mapped[str] = mapped_column(
@@ -59,5 +66,11 @@ class PlatformAdmin(Entity):
     is_super_admin: Mapped[bool] = mapped_column(
         Boolean,
         default=False,
+        nullable=False,
+    )
+
+    role: Mapped[PlatformAdminRole] = mapped_column(
+        Enum(PlatformAdminRole, name="platform_admin_role"),
+        default=PlatformAdminRole.PLATFORM_ADMIN,
         nullable=False,
     )

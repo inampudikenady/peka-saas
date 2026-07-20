@@ -6,7 +6,7 @@ from jose import JWTError, jwt
 from passlib.context import CryptContext
 
 from app.core.config import settings
-from app.schemas.token import PlatformTokenPayload
+from app.schemas.token import PlatformTokenPayload, TenantTokenPayload
 
 
 password_context = CryptContext(
@@ -55,7 +55,7 @@ def create_tenant_access_token(
 ) -> str:
     expires_at = datetime.utcnow() + (
         expires_delta
-        or timedelta(minutes=settings.platform_admin_access_token_minutes)
+        or timedelta(minutes=settings.tenant_access_token_minutes)
     )
 
     payload = {
@@ -83,3 +83,15 @@ def decode_access_token(token: str) -> PlatformTokenPayload:
         return PlatformTokenPayload.model_validate(payload)
     except JWTError as exc:
         raise ValueError("Invalid access token") from exc
+
+
+def decode_tenant_access_token(token: str) -> TenantTokenPayload:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.platform_admin_jwt_secret,
+            algorithms=[settings.platform_admin_jwt_algorithm],
+        )
+        return TenantTokenPayload.model_validate(payload)
+    except (JWTError, ValueError) as exc:
+        raise ValueError("Invalid tenant access token") from exc

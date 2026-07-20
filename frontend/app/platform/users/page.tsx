@@ -1,0 +1,19 @@
+"use client";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Alert } from "@/components/alert";
+import { CopyButton } from "@/components/copy-button";
+import { PlatformShell } from "@/components/platform-shell";
+import { StatusBadge } from "@/components/status-badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { platformApi } from "@/lib/api";
+import type { PlatformInvitation, PlatformRole, PlatformUser } from "@/lib/types";
+
+export default function PlatformUsersPage() {
+  const [users, setUsers] = useState<PlatformUser[]>([]); const [error, setError] = useState(""); const [invite, setInvite] = useState<PlatformInvitation | null>(null);
+  useEffect(() => { void platformApi.users().then(setUsers).catch(e => setError(e.message)); }, []);
+  const updateRole = async (user: PlatformUser, role: PlatformRole) => { try { const next = await platformApi.updateUser(user.id, { email: user.email, full_name: user.full_name, role }); setUsers(items => items.map(item => item.id === next.id ? next : item)); } catch (e) { setError(e instanceof Error ? e.message : "Role update failed."); } };
+  const toggle = async (user: PlatformUser) => { try { const next = await platformApi.setUserActive(user.id, !user.is_active); setUsers(items => items.map(item => item.id === next.id ? next : item)); } catch (e) { setError(e instanceof Error ? e.message : "Status update failed."); } };
+  return <PlatformShell title="Platform Users" adminOnly><div className="mb-6 flex items-center justify-between"><div><h2 className="text-2xl font-semibold">Platform users</h2><p className="text-sm text-slate-500">Manage administrators and read-only operators.</p></div><Button asChild><Link href="/platform/users/new">Add user</Link></Button></div>{error && <div className="mb-4"><Alert>{error}</Alert></div>}{invite && <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4"><p className="font-medium">One-time password reset link</p><p className="text-sm text-slate-600">Expires {new Date(invite.expires_at).toLocaleString()}</p><div className="mt-2 flex items-center gap-2"><code className="min-w-0 flex-1 overflow-x-auto bg-white p-2 text-xs">{invite.setup_link}</code><CopyButton value={invite.setup_link}/></div></div>}<Card className="overflow-x-auto"><table className="w-full text-left text-sm"><thead className="border-b bg-slate-50"><tr>{["Name", "Username", "Role", "Status", "Last login", "Actions"].map(h => <th key={h} className="px-4 py-3 font-medium text-slate-500">{h}</th>)}</tr></thead><tbody>{users.map(user => <tr key={user.id} className="border-b last:border-0"><td className="px-4 py-4"><div className="font-medium">{user.full_name}</div><div className="text-xs text-slate-500">{user.email}</div></td><td className="px-4 py-4 font-mono text-xs">{user.username}</td><td className="px-4 py-4"><select aria-label={`Role for ${user.username}`} value={user.role} onChange={e => updateRole(user, e.target.value as PlatformRole)} className="rounded border px-2 py-1"><option value="platform_admin">Administrator</option><option value="platform_readonly">Read only</option></select></td><td className="px-4 py-4"><StatusBadge status={user.is_active ? "Active" : "Inactive"}/></td><td className="px-4 py-4">{user.last_login_at ? new Date(user.last_login_at).toLocaleString() : "Never"}</td><td className="px-4 py-4"><div className="flex gap-2"><Button variant="outline" onClick={() => toggle(user)}>{user.is_active ? "Deactivate" : "Activate"}</Button><Button variant="ghost" onClick={async () => { try { setInvite(await platformApi.passwordReset(user.id)); } catch (e) { setError(e instanceof Error ? e.message : "Reset failed."); } }}>Reset password</Button></div></td></tr>)}</tbody></table></Card></PlatformShell>;
+}
