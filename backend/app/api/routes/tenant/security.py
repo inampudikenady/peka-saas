@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth import get_current_tenant_admin
 from app.api.dependencies import get_tenant_sso_service
@@ -10,8 +12,11 @@ from app.schemas.tenant_sso import (
     TenantSSOConfigUpdate,
 )
 from app.services.tenant_sso_service import TenantSSOService
+from app.core.exceptions import OIDCConfigurationError
+from app.core.logging import request_id_ctx
 
 router = APIRouter(prefix="/tenant/admin/security")
+logger = logging.getLogger(__name__)
 
 
 @router.get(
@@ -36,7 +41,19 @@ def update_sso_configuration(
     tenant_admin: TenantUser = Depends(get_current_tenant_admin),
     service: TenantSSOService = Depends(get_tenant_sso_service),
 ):
-    return service.upsert(
-        tenant_context.tenant_id,
-        payload,
-    )
+    try:
+        return service.upsert(
+            tenant_context.tenant_id,
+            payload,
+        )
+    except OIDCConfigurationError as exc:
+        logger.warning(
+            "Tenant SSO configuration validation failed",
+            extra={
+                "tenant_id": str(tenant_context.tenant_id),
+                "provider": payload.provider.value,
+                "failure_stage": "configuration_validation",
+                "request_id": request_id_ctx.get(),
+            },
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

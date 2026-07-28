@@ -21,6 +21,10 @@ The connector communicates only through outbound HTTPS (TCP 443).
 
 The connector registers with the SaaS using a one-time registration token.
 
+Connector registration is tenant-neutral at the HTTP routing layer. The one-time registration token securely determines the tenant. Reverse-proxy routing headers are not tenant identity for connector APIs.
+
+The connector appliance owns mutable presentation metadata. Registration establishes its initial display name, environment, version, and capabilities. Authenticated heartbeats may update those values without changing connector ID, instance ID, tenant ID, or credentials. SaaS does not provide a separate rename control.
+
 After successful registration, the SaaS issues:
 
 - Permanent Connector ID

@@ -1,11 +1,16 @@
 from typing import Any
+import logging
 
 import httpx
 from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.exceptions import OIDCAuthenticationError, OIDCConfigurationError
-from app.models.tenant_sso_config import TenantSSOConfig
+from app.core.logging import request_id_ctx
+from app.services.tenant_sso_service import OIDCRuntimeConfiguration
+
+
+logger = logging.getLogger(__name__)
 
 
 class OIDCUserIdentity(BaseModel):
@@ -19,9 +24,11 @@ class OIDCUserIdentity(BaseModel):
 class OIDCAuthenticationService:
     def authenticate(
         self,
-        config: TenantSSOConfig,
+        config: OIDCRuntimeConfiguration,
         code: str,
         expected_nonce: str,
+        redirect_uri: str,
+        code_verifier: str | None,
     ) -> OIDCUserIdentity:
         if not config.token_endpoint:
             raise OIDCConfigurationError("OIDC token endpoint is missing.")
@@ -32,30 +39,47 @@ class OIDCAuthenticationService:
         if not config.client_id:
             raise OIDCConfigurationError("OIDC client ID is missing.")
 
-        if not config.client_secret_encrypted:
+        if not config.client_secret:
             raise OIDCConfigurationError("OIDC client secret is missing.")
 
-        if not config.redirect_uri:
+        if not redirect_uri:
             raise OIDCConfigurationError("OIDC redirect URI is missing.")
 
         if not config.issuer_url:
             raise OIDCConfigurationError("OIDC issuer URL is missing.")
 
         try:
+            token_request = {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": config.client_id,
+                "client_secret": config.client_secret,
+                "redirect_uri": redirect_uri,
+            }
+            if code_verifier:
+                token_request["code_verifier"] = code_verifier
             token_response = httpx.post(
                 config.token_endpoint,
-                data={
-                    "grant_type": "authorization_code",
-                    "code": code,
-                    "client_id": config.client_id,
-                    "client_secret": config.client_secret_encrypted,
-                    "redirect_uri": config.redirect_uri,
-                },
+                data=token_request,
                 timeout=15,
             )
             token_response.raise_for_status()
             token_data: dict[str, Any] = token_response.json()
         except (httpx.HTTPError, ValueError) as exc:
+            logger.warning(
+                "OIDC authorization code exchange failed",
+                extra={
+                    "tenant_id": str(config.tenant_id),
+                    "provider": config.provider.value,
+                    "failure_stage": "token_exchange",
+                    "provider_http_status": (
+                        exc.response.status_code
+                        if isinstance(exc, httpx.HTTPStatusError)
+                        else None
+                    ),
+                    "request_id": request_id_ctx.get(),
+                },
+            )
             raise OIDCAuthenticationError(
                 "OIDC authorization code exchange failed."
             ) from exc
@@ -72,6 +96,20 @@ class OIDCAuthenticationService:
             token_header = jwt.get_unverified_header(id_token)
             signing_key = self._find_signing_key(jwks, token_header.get("kid"))
         except (httpx.HTTPError, ValueError, JWTError) as exc:
+            logger.warning(
+                "OIDC signing key validation failed",
+                extra={
+                    "tenant_id": str(config.tenant_id),
+                    "provider": config.provider.value,
+                    "failure_stage": "jwks",
+                    "provider_http_status": (
+                        exc.response.status_code
+                        if isinstance(exc, httpx.HTTPStatusError)
+                        else None
+                    ),
+                    "request_id": request_id_ctx.get(),
+                },
+            )
             raise OIDCAuthenticationError(
                 "OIDC signing keys could not be validated."
             ) from exc
@@ -86,6 +124,15 @@ class OIDCAuthenticationService:
                 options={"verify_at_hash": False},
             )
         except JWTError as exc:
+            logger.warning(
+                "OIDC ID token validation failed",
+                extra={
+                    "tenant_id": str(config.tenant_id),
+                    "provider": config.provider.value,
+                    "failure_stage": "id_token_validation",
+                    "request_id": request_id_ctx.get(),
+                },
+            )
             raise OIDCAuthenticationError("OIDC ID token validation failed.") from exc
 
         if claims.get("nonce") != expected_nonce:
@@ -98,7 +145,7 @@ class OIDCAuthenticationService:
                 "OIDC identity does not contain an email address."
             )
 
-        subject = claims.get("sub")
+        subject = claims.get("oid") or claims.get("sub")
         if not subject:
             raise OIDCAuthenticationError("OIDC identity does not contain a subject.")
 

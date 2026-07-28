@@ -4,21 +4,70 @@ Keep this module backward compatible with the connector client's typed models.
 Timestamps are timezone-aware ISO-8601 values and are serialized as UTC.
 """
 
-from datetime import datetime
-from typing import Literal
+from datetime import UTC, datetime
+from enum import Enum
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 
 
 ConnectorCapabilityName = Literal["filesystem_documents"]
+ConnectorName = Annotated[str, Field(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f]+$")]
+ConnectorVersion = Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")]
+ConnectorEnvironment = Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")]
+
+
+class ConnectorAPIModel(BaseModel):
+    """Base contract that always emits connector API timestamps as UTC."""
+
+    @field_serializer("*", when_used="json", check_fields=False)
+    def serialize_utc_datetimes(self, value: Any) -> Any:
+        if not isinstance(value, datetime):
+            return value
+        normalized = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return normalized.isoformat()
+
+
+class ConnectorRegistrationErrorCode(str, Enum):
+    TOKEN_NOT_FOUND = "TOKEN_NOT_FOUND"
+    TOKEN_EXPIRED = "TOKEN_EXPIRED"
+    TOKEN_USED = "TOKEN_USED"
+    TOKEN_REVOKED = "TOKEN_REVOKED"
+    TOKEN_HASH_MISMATCH = "TOKEN_HASH_MISMATCH"
+    INSTANCE_ALREADY_REGISTERED = "INSTANCE_ALREADY_REGISTERED"
+    TENANT_MISMATCH = "TENANT_MISMATCH"
+    TENANT_INACTIVE = "TENANT_INACTIVE"
+    CONNECTOR_LIMIT_REACHED = "CONNECTOR_LIMIT_REACHED"
+    VALIDATION_FAILED = "VALIDATION_FAILED"
+    REGISTRATION_NOT_PERMITTED = "REGISTRATION_NOT_PERMITTED"
+    RATE_LIMITED = "RATE_LIMITED"
+    INTERNAL_ERROR = "INTERNAL_ERROR"
+
+
+class ConnectorRegistrationErrorResponse(ConnectorAPIModel):
+    """Credential-safe error returned by connector registration."""
+
+    code: ConnectorRegistrationErrorCode
+    message: str
 
 
 class ConnectorRegistrationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     registration_token: str = Field(min_length=20, max_length=512)
-    connector_name: str = Field(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f]+$")
-    connector_version: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
-    environment: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
+    connector_name: ConnectorName = Field(validation_alias=AliasChoices("connector_name", "name"))
+    connector_version: ConnectorVersion = Field(validation_alias=AliasChoices("connector_version", "version"))
+    environment: ConnectorEnvironment
     instance_id: UUID
     capabilities: list[ConnectorCapabilityName] = Field(default_factory=list, max_length=32)
 
@@ -30,7 +79,9 @@ class ConnectorRegistrationRequest(BaseModel):
         return value
 
 
-class ConnectorRegistrationResponse(BaseModel):
+class ConnectorRegistrationResponse(ConnectorAPIModel):
+    _registration_token_id: UUID | None = PrivateAttr(default=None)
+
     connector_id: UUID
     tenant_id: UUID
     connector_secret: str
@@ -52,8 +103,15 @@ class ConnectorSourceSummary(BaseModel):
 
 
 class ConnectorHeartbeatRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     instance_id: UUID
-    connector_version: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
+    connector_name: ConnectorName | None = Field(
+        default=None,
+        validation_alias=AliasChoices("connector_name", "name"),
+    )
+    connector_version: ConnectorVersion = Field(validation_alias=AliasChoices("connector_version", "version"))
+    environment: ConnectorEnvironment | None = None
     timestamp: datetime
     status: Literal["healthy"]
     uptime_seconds: int = Field(ge=0)
@@ -71,17 +129,17 @@ class ConnectorHeartbeatRequest(BaseModel):
         return value
 
 
-class ConnectorHeartbeatResponse(BaseModel):
+class ConnectorHeartbeatResponse(ConnectorAPIModel):
     accepted: Literal[True] = True
     server_time: datetime
     next_heartbeat_seconds: int
 
 
 class RegistrationTokenCreate(BaseModel):
-    intended_connector_name: str | None = Field(default=None, min_length=1, max_length=255)
+    model_config = ConfigDict(extra="forbid")
 
 
-class RegistrationTokenResponse(BaseModel):
+class RegistrationTokenResponse(ConnectorAPIModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     tenant_id: UUID
@@ -98,7 +156,7 @@ class RegistrationTokenCreatedResponse(RegistrationTokenResponse):
     registration_token: str
 
 
-class ConnectorSummaryResponse(BaseModel):
+class ConnectorSummaryResponse(ConnectorAPIModel):
     model_config = ConfigDict(from_attributes=True)
     id: UUID
     tenant_id: UUID
@@ -118,9 +176,11 @@ class ConnectorSummaryResponse(BaseModel):
     source_unhealthy: int
     source_disabled: int
     retired_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
 
 
-class ConnectorHeartbeatHistoryResponse(BaseModel):
+class ConnectorHeartbeatHistoryResponse(ConnectorAPIModel):
     model_config = ConfigDict(from_attributes=True)
     received_at: datetime
     reported_at: datetime
@@ -134,7 +194,7 @@ class ConnectorHeartbeatHistoryResponse(BaseModel):
     accepted: bool
 
 
-class ConnectorEventResponse(BaseModel):
+class ConnectorEventResponse(ConnectorAPIModel):
     model_config = ConfigDict(from_attributes=True)
     event_type: str
     occurred_at: datetime

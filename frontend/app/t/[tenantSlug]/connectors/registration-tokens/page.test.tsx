@@ -12,7 +12,12 @@ describe("registration token generation", () => {
   beforeEach(() => { createRegistrationToken.mockReset(); });
   it("shows the raw token once with a copy action", async () => {
     createRegistrationToken.mockResolvedValue({ id: "token-1", tenant_id: "tenant-1", registration_token: "peka_reg_one_time", expires_at: "2026-07-20T11:00:00Z", created_at: "2026-07-20T10:30:00Z", used_at: null, revoked_at: null, created_by_user_id: "user-1", intended_connector_name: "Acme Files", status: "active" });
-    render(<Page/>); fireEvent.change(screen.getByPlaceholderText("Intended connector name (optional)"), { target: { value: "Acme Files" } }); fireEvent.click(screen.getByRole("button", { name: "Generate token" }));
-    await waitFor(() => expect(screen.getByText("peka_reg_one_time")).toBeInTheDocument()); expect(screen.getByText("Copy")).toBeInTheDocument(); expect(createRegistrationToken).toHaveBeenCalledWith("acme", "Acme Files");
+    render(<Page/>);
+    expect(screen.queryByPlaceholderText(/Intended connector name/i)).not.toBeInTheDocument();
+    expect(screen.queryByText("Intended connector")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Generate token" }));
+    await waitFor(() => expect(screen.getByText("peka_reg_one_time")).toBeInTheDocument());
+    expect(screen.getByText("Copy")).toBeInTheDocument();
+    expect(createRegistrationToken).toHaveBeenCalledWith("acme");
   });
 });

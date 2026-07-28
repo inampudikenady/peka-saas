@@ -58,6 +58,10 @@ class OIDCAuthenticationError(OIDCError):
     """Raised when the provider response or ID token cannot be authenticated."""
 
 
+class OIDCUserAuthorizationError(OIDCError):
+    """Raised when a valid provider identity is not authorized for the tenant."""
+
+
 class TenantAuthenticationError(PEKAError):
     """Raised when tenant credentials cannot be authenticated."""
 

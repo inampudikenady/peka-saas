@@ -2,7 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.api.auth import allow_tenant_user, require_tenant_admin
+from app.api.auth import require_tenant_admin
 from app.api.dependencies import get_connector_service
 from app.api.tenant_context import get_current_tenant_context
 from app.core.tenant_context import TenantContext
@@ -29,30 +29,32 @@ def handle(action):
 
 @router.get("", response_model=list[ConnectorSummaryResponse])
 def list_connectors(
-    context: TenantContext = Depends(get_current_tenant_context),
-    actor: TenantUser = Depends(allow_tenant_user),
-    service: ConnectorService = Depends(get_connector_service),
-):
-    return service.list_tenant_connectors(context.tenant_id)
-
-
-@router.get("/registration-tokens", response_model=list[RegistrationTokenResponse])
-def list_registration_tokens(
-    context: TenantContext = Depends(get_current_tenant_context),
-    actor: TenantUser = Depends(allow_tenant_user),
-    service: ConnectorService = Depends(get_connector_service),
-):
-    return service.list_registration_tokens(context.tenant_id)
-
-
-@router.post("/registration-tokens", response_model=RegistrationTokenCreatedResponse, status_code=status.HTTP_201_CREATED)
-def create_registration_token(
-    payload: RegistrationTokenCreate,
+    include_retired: bool = False,
     context: TenantContext = Depends(get_current_tenant_context),
     actor: TenantUser = Depends(require_tenant_admin),
     service: ConnectorService = Depends(get_connector_service),
 ):
-    return service.create_registration_token(context.tenant_id, actor, payload.intended_connector_name)
+    return service.list_tenant_connectors(context.tenant_id, include_retired=include_retired)
+
+
+@router.get("/registration-tokens", response_model=list[RegistrationTokenResponse])
+def list_registration_tokens(
+    include_inactive: bool = False,
+    context: TenantContext = Depends(get_current_tenant_context),
+    actor: TenantUser = Depends(require_tenant_admin),
+    service: ConnectorService = Depends(get_connector_service),
+):
+    return service.list_registration_tokens(context.tenant_id, include_inactive=include_inactive)
+
+
+@router.post("/registration-tokens", response_model=RegistrationTokenCreatedResponse, status_code=status.HTTP_201_CREATED)
+def create_registration_token(
+    _payload: RegistrationTokenCreate | None = None,
+    context: TenantContext = Depends(get_current_tenant_context),
+    actor: TenantUser = Depends(require_tenant_admin),
+    service: ConnectorService = Depends(get_connector_service),
+):
+    return service.create_registration_token(context.tenant_id, actor, None)
 
 
 @router.delete("/registration-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -70,7 +72,7 @@ def revoke_registration_token(
 def connector_detail(
     connector_id: UUID,
     context: TenantContext = Depends(get_current_tenant_context),
-    actor: TenantUser = Depends(allow_tenant_user),
+    actor: TenantUser = Depends(require_tenant_admin),
     service: ConnectorService = Depends(get_connector_service),
 ):
     return handle(lambda: service.get_tenant_detail(context.tenant_id, connector_id))
@@ -84,4 +86,3 @@ def retire_connector(
     service: ConnectorService = Depends(get_connector_service),
 ):
     return handle(lambda: service.retire(context.tenant_id, connector_id, actor))
-

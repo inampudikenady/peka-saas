@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from fastapi.responses import RedirectResponse
 
@@ -16,10 +18,12 @@ from app.core.exceptions import (
     OIDCAuthenticationError,
     OIDCAuthSessionError,
     OIDCConfigurationError,
+    OIDCUserAuthorizationError,
     TenantAuthenticationError,
     TenantInviteError,
 )
 from app.core.security import create_tenant_access_token
+from app.core.logging import request_id_ctx
 from app.core.tenant_session import (
     clear_tenant_session_cookie,
     set_tenant_session_cookie,
@@ -34,6 +38,7 @@ from app.schemas.tenant_auth import (
     TenantMeResponse,
     TenantChangePasswordRequest,
 )
+from app.schemas.tenant_sso import TenantSSOLoginOptions
 from app.services.tenant_account_activation_service import TenantAccountActivationService
 from app.services.oidc_authentication_service import OIDCAuthenticationService
 from app.services.oidc_authorization_service import OIDCAuthorizationService
@@ -49,6 +54,19 @@ from app.services.tenant_user_management_service import TenantUserManagementErro
 
 
 router = APIRouter(prefix="/tenant/auth")
+logger = logging.getLogger(__name__)
+
+
+@router.get("/sso-options", response_model=TenantSSOLoginOptions)
+def sso_login_options(
+    tenant_context: TenantContext = Depends(get_current_tenant_context),
+    sso_service: TenantSSOService = Depends(get_tenant_sso_service),
+) -> TenantSSOLoginOptions:
+    config = sso_service.get(tenant_context.tenant_id)
+    return TenantSSOLoginOptions(
+        provider=config.provider if config else None,
+        enabled=bool(config and config.enabled),
+    )
 
 
 @router.get("/login")
@@ -59,29 +77,35 @@ def login_with_sso(
         get_tenant_oidc_auth_session_service
     ),
 ):
-    config = sso_service.get(tenant_context.tenant_id)
-
-    if config is None or not config.enabled:
+    try:
+        config = sso_service.resolve_for_authentication(tenant_context.tenant_id)
+    except OIDCConfigurationError as exc:
+        logger.warning(
+            "OIDC login initiation failed",
+            extra={
+                "tenant_id": str(tenant_context.tenant_id),
+                "failure_stage": "discovery",
+                "request_id": request_id_ctx.get(),
+            },
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SSO is not configured for this tenant.",
-        )
-
-    if not config.authorization_endpoint or not config.client_id or not config.redirect_uri:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SSO configuration is incomplete.",
-        )
+            detail=str(exc),
+        ) from exc
 
     auth_session, raw_state = auth_session_service.create(
         tenant_id=tenant_context.tenant_id,
         redirect_uri=config.redirect_uri,
     )
+    assert auth_session.code_verifier is not None
 
     authorization_url = OIDCAuthorizationService().build_authorization_url(
         config=config,
         state=raw_state,
         nonce=auth_session.nonce,
+        code_challenge=auth_session_service.code_challenge(
+            auth_session.code_verifier
+        ),
     )
 
     return RedirectResponse(authorization_url)
@@ -152,8 +176,9 @@ def local_login(
 
 @router.get("/callback")
 def oidc_callback(
-    code: str,
     state: str,
+    code: str | None = None,
+    error: str | None = None,
     tenant_context: TenantContext = Depends(get_current_tenant_context),
     sso_service: TenantSSOService = Depends(get_tenant_sso_service),
     auth_session_service: TenantOIDCAuthSessionService = Depends(
@@ -177,19 +202,38 @@ def oidc_callback(
             detail=str(exc),
         ) from exc
 
-    config = sso_service.get(tenant_context.tenant_id)
+    auth_session_service.consume(session)
 
-    if config is None or not config.enabled:
+    if error:
+        logger.warning(
+            "OIDC provider rejected login",
+            extra={
+                "tenant_id": str(tenant_context.tenant_id),
+                "failure_stage": "provider_authorization",
+                "provider_error_code": error[:100],
+                "request_id": request_id_ctx.get(),
+            },
+        )
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Identity provider rejected the login.",
+        )
+    if not code:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="SSO is not configured.",
+            detail="Identity provider did not return an authorization code.",
         )
 
     try:
+        config = sso_service.resolve_for_authentication(
+            tenant_context.tenant_id
+        )
         identity = authentication_service.authenticate(
             config=config,
             code=code,
             expected_nonce=session.nonce,
+            redirect_uri=session.redirect_uri,
+            code_verifier=session.code_verifier,
         )
     except OIDCConfigurationError as exc:
         raise HTTPException(
@@ -202,12 +246,16 @@ def oidc_callback(
             detail=str(exc),
         ) from exc
 
-    user = oidc_user_service.provision(
-        tenant_id=tenant_context.tenant_id,
-        identity=identity,
-    )
-
-    auth_session_service.consume(session)
+    try:
+        user = oidc_user_service.provision(
+            tenant_id=tenant_context.tenant_id,
+            identity=identity,
+        )
+    except OIDCUserAuthorizationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        ) from exc
 
     access_token = create_tenant_access_token(
         subject=user.id,

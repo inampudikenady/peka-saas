@@ -9,6 +9,7 @@ from app.models.tenant import Tenant, TenantStatus
 from app.models.tenant_admin_invite import TenantAdminInvite
 from app.models.tenant_sso_config import SSOProvider
 from app.schemas.tenant_sso import TenantSSOConfigUpdate
+from app.schemas.tenant import TenantCreate
 from app.services.tenant_admin_invite_service import TenantAdminInviteService
 from app.services.tenant_service import TenantService
 from app.services.tenant_sso_service import TenantSSOService
@@ -134,8 +135,9 @@ def test_regeneration_expires_old_invite_and_returns_only_new_setup_link():
 def test_blank_sso_secret_preserves_existing_value():
     tenant = make_tenant()
     config = SimpleNamespace(
-        client_secret_encrypted="stored-secret",
-        provider=SSOProvider.ENTRA_ID,
+        client_secret_encrypted="enc:stored-secret",
+        provider=SSOProvider.MICROSOFT_ENTRA,
+        entra_tenant_id=None,
         issuer_url="old",
         client_id="old",
         authorization_endpoint=None,
@@ -160,15 +162,42 @@ def test_blank_sso_secret_preserves_existing_value():
             jwks_uri="jwks",
         )
     )
-    service = TenantSSOService(sso_repository, tenant_repository, discovery)
+    cipher = SimpleNamespace(
+        encrypt=lambda secret: f"enc:{secret}",
+        decrypt=lambda secret: secret.removeprefix("enc:"),
+        is_encrypted=lambda secret: secret.startswith("enc:"),
+    )
+    service = TenantSSOService(
+        sso_repository, tenant_repository, discovery, cipher
+    )
     service.upsert(
         tenant.id,
         TenantSSOConfigUpdate(
-            provider=SSOProvider.ENTRA_ID,
-            issuer_url="https://issuer.example",
+            provider=SSOProvider.MICROSOFT_ENTRA,
+            entra_tenant_id="11111111-1111-4111-8111-111111111111",
             client_id="client",
             client_secret=None,
             enabled=True,
         ),
     )
-    assert config.client_secret_encrypted == "stored-secret"
+    assert config.client_secret_encrypted == "enc:stored-secret"
+    assert config.issuer_url == (
+        "https://login.microsoftonline.com/"
+        "11111111-1111-4111-8111-111111111111/v2.0"
+    )
+    assert config.authorization_endpoint == "authorize"
+    assert config.token_endpoint == "token"
+    assert config.jwks_uri == "jwks"
+
+
+def test_tenant_creation_requires_an_iana_timezone():
+    values = {
+        "slug": "tuple",
+        "name": "Tuple",
+        "display_name": "Tuple",
+        "initial_admin_email": "admin@example.com",
+        "initial_admin_full_name": "Admin User",
+    }
+    assert TenantCreate(**values, timezone="Asia/Kolkata").timezone == "Asia/Kolkata"
+    with pytest.raises(ValueError, match="IANA"):
+        TenantCreate(**values, timezone="India Standard Time")

@@ -2,6 +2,7 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.config import settings
 from app.core.tenant_registry import tenant_registry
 
 from app.repositories.platform_admin_repository import PlatformAdminRepository
@@ -34,7 +35,12 @@ from app.services.tenant_admin_invite_service import TenantAdminInviteService
 from app.services.tenant_platform_summary_service import TenantPlatformSummaryService
 from app.services.tenant_user_management_service import TenantUserManagementService
 from app.repositories.connector_repository import ConnectorRepository
+from app.repositories.document_repository import DocumentRepository
+from app.repositories.ai_conversation_repository import AIConversationRepository
 from app.services.connector_service import ConnectorService
+from app.services.knowledge_service import KnowledgeService
+from app.services.ai_conversation_service import AIConversationService
+from app.services.provider_factory import embedding_provider, vector_store
 
 
 def get_tenant_service(
@@ -133,4 +139,25 @@ def get_tenant_user_management_service(
 
 
 def get_connector_service(db: Session = Depends(get_db)) -> ConnectorService:
-    return ConnectorService(ConnectorRepository(db), TenantRepository(db))
+    return ConnectorService(
+        ConnectorRepository(db),
+        TenantRepository(db),
+        connector_limit=settings.connector_max_active_per_tenant,
+    )
+
+
+def get_knowledge_service(
+    db: Session = Depends(get_db),
+) -> KnowledgeService:
+    """Compose the sole tenant retrieval boundary outside its consumers."""
+    return KnowledgeService(
+        DocumentRepository(db),
+        embedding_provider(),
+        vector_store(),
+    )
+
+
+def get_ai_conversation_service(
+    db: Session = Depends(get_db),
+) -> AIConversationService:
+    return AIConversationService(AIConversationRepository(db))

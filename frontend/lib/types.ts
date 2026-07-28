@@ -31,16 +31,18 @@ export type TenantMe = {
 export type TenantUser = { id: string; tenant_id: string; username: string | null; email: string; full_name: string; auth_source: "local" | "sso"; role: "tenant_admin" | "tenant_user"; is_active: boolean; last_login_at: string | null };
 export type TenantUserInvitation = { user: TenantUser; setup_link: string; expires_at: string };
 export type PlatformSettings = { platform_name:string;environment:string;default_timezone:string;application_version:string;support_contact:string|null;platform_base_url:string;tenant_base_url:string;url_mode:string;public_frontend_url:string;api_base_path:string };
-export type SSOProvider = "entra_id" | "okta" | "generic_oidc";
+export type SSOProvider = "microsoft_entra" | "generic_oidc";
 export type TenantSSOConfig = {
-  provider: SSOProvider; issuer_url: string | null; client_id: string | null;
-  authorization_endpoint: string | null; token_endpoint: string | null;
-  jwks_uri: string | null; redirect_uri: string | null; scopes: string; enabled: boolean;
+  provider: SSOProvider; entra_tenant_id: string | null;
+  issuer_url: string | null; client_id: string | null;
+  client_secret_configured: boolean; redirect_uri: string | null; enabled: boolean;
 };
 export type TenantSSOUpdate = {
-  provider: SSOProvider; issuer_url: string; client_id: string;
-  client_secret?: string | null; scopes: string; enabled: boolean;
+  provider: SSOProvider; entra_tenant_id?: string | null;
+  issuer_url?: string | null; client_id: string;
+  client_secret?: string | null; enabled: boolean;
 };
+export type TenantSSOLoginOptions = {provider:SSOProvider|null;enabled:boolean};
 export type ConnectorStatus = "connected" | "in_sync" | "degraded" | "out_of_sync" | "disconnected" | "authentication_failed" | "retired";
 export type ManagedConnector = {
   id: string; tenant_id: string; tenant_name: string | null; tenant_slug: string | null;
@@ -48,6 +50,7 @@ export type ManagedConnector = {
   registered_at: string; last_heartbeat_at: string | null; last_seen_at: string | null;
   heartbeat_interval_seconds: number; source_total: number; source_healthy: number;
   source_unhealthy: number; source_disabled: number; retired_at: string | null;
+  created_at: string; updated_at: string;
 };
 export type ConnectorHeartbeat = {
   received_at: string; reported_at: string; version: string; reported_status: string; uptime_seconds: number;
@@ -60,3 +63,34 @@ export type RegistrationToken = {
   created_at: string; revoked_at: string | null; intended_connector_name: string | null; status: "active" | "used" | "expired" | "revoked";
 };
 export type RegistrationTokenCreated = RegistrationToken & { registration_token: string };
+export type DocumentVersion = { id:string;content_hash:string;size_bytes:number;ingestion_status:string;storage_status:string;parser_name:string|null;chunker_name:string|null;embedding_provider:string|null;embedding_model:string|null;received_at:string;indexed_at:string|null;error_code:string|null;error_message:string|null };
+export type DocumentDeletionState = {delete_eligible:boolean;delete_unavailable_reason:string|null;deletion_in_progress:boolean};
+export type ManagedDocument = DocumentDeletionState & { id:string;connector_id:string;source_id:string;document_key:string;filename:string;relative_path:string;mime_type:string;is_deleted:boolean;current_version:DocumentVersion|null;versions:DocumentVersion[];chunk_count:number;embedding_status:string;indexed:boolean;searchable:boolean;processing_status:string;blocking_reason:string|null;worker_status:string;created_at:string;updated_at:string };
+export type ManagedDocumentListItem = DocumentDeletionState & { id:string;connector_id:string;source_id:string;filename:string;mime_type:string;ingestion_status:string;processing_status:string;blocking_reason:string|null;worker_status:string;chunk_count:number;embedding_status:string;indexed:boolean;searchable:boolean;is_deleted:boolean;updated_at:string };
+export type AIAnswerFilters = { connector_id?:string|null;source_id?:string|null;document_id?:string|null };
+export type AIAnswerRequest = { query:string;top_k?:number;filters?:AIAnswerFilters;conversation_id?:string|null };
+export type AIAnswerCitation = {
+  citation_id:string;source_type:string;document_id:string;version_id:string;
+  chunk_id:string;title:string;page_number:number|null;section_title:string|null;
+  sheet_name:string|null;row_start:number|null;row_end:number|null;score:number;
+  excerpt?:string|null;document_type?:string|null;source_system?:string|null;
+  source_id?:string|null;ingested_at?:string|null;revision?:string|null;
+  sensitive_content_redacted?:boolean;redaction_categories?:string[];
+};
+export type AIAnswerResponse = { answer:string;grounded:boolean;code:string|null;citations:AIAnswerCitation[];retrieval:{result_count:number;included_count:number;top_k:number};model:{provider:string;model:string}|null;request_id:string };
+export type AIPromptSuggestions = {has_indexed_knowledge:boolean;suggestions:string[];onboarding_guidance:string|null};
+export type AIConversationMessage = {
+  id:string;role:"user"|"assistant";content:string;
+  status:"streaming"|"completed"|"failed"|"cancelled";
+  created_at:string;completed_at:string|null;model:string|null;prompt_version:string|null;
+  citations:AIAnswerCitation[];retrieval_metadata:Record<string,unknown>;
+  failure_metadata:Record<string,unknown>;
+  context_message_ids:string[];
+};
+export type AIConversationSummary = {
+  id:string;title:string;created_at:string;updated_at:string;last_message_at:string;
+  is_archived:boolean;last_message_preview:string|null;
+};
+export type AIConversation = AIConversationSummary & {messages:AIConversationMessage[]};
+export type AIConversationList = {items:AIConversationSummary[];total:number;limit:number;offset:number};
+export type AICitationEvidence = {message_id:string;citation:AIAnswerCitation};

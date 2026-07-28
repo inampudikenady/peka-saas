@@ -23,6 +23,18 @@ class TenantUserRepository(BaseRepository[TenantUser]):
         )
         return self.db.scalar(stmt)
 
+    def get_by_tenant_and_external_subject(
+        self,
+        tenant_id: UUID,
+        external_subject: str,
+    ) -> TenantUser | None:
+        stmt = (
+            select(TenantUser)
+            .where(TenantUser.tenant_id == tenant_id)
+            .where(TenantUser.external_subject == external_subject)
+        )
+        return self.db.scalar(stmt)
+
     def get_by_tenant_and_username(
         self,
         tenant_id: UUID,

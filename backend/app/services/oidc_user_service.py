@@ -4,6 +4,7 @@ from uuid import UUID
 from app.models.tenant_user import TenantUser, TenantUserAuthSource, TenantUserRole
 from app.repositories.tenant_user_repository import TenantUserRepository
 from app.services.oidc_authentication_service import OIDCUserIdentity
+from app.core.exceptions import OIDCUserAuthorizationError
 
 
 class OIDCUserService:
@@ -15,10 +16,26 @@ class OIDCUserService:
         tenant_id: UUID,
         identity: OIDCUserIdentity,
     ) -> TenantUser:
-        user = self.repository.get_by_tenant_and_email(
-            tenant_id,
-            identity.email,
+        user = self.repository.get_by_tenant_and_external_subject(
+            tenant_id, identity.subject
         )
+        if user is None:
+            user = self.repository.get_by_tenant_and_email(
+                tenant_id,
+                identity.email,
+            )
+            if (
+                user is not None
+                and user.external_subject
+                and user.external_subject != identity.subject
+            ):
+                raise OIDCUserAuthorizationError(
+                    "User is not authorized for this tenant."
+                )
+        if user is not None and not user.is_active:
+            raise OIDCUserAuthorizationError(
+                "User is not authorized for this tenant."
+            )
 
         try:
             if user is None:

@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.tenant import TenantStatus
 
@@ -17,6 +18,15 @@ class TenantCreate(BaseModel):
     timezone: str = Field(default="UTC", max_length=100)
     initial_admin_email: str = Field(..., max_length=255)
     initial_admin_full_name: str = Field(..., min_length=2, max_length=255)
+
+    @field_validator("timezone")
+    @classmethod
+    def timezone_must_be_iana(cls, value: str) -> str:
+        try:
+            ZoneInfo(value)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError("timezone must be a valid IANA timezone ID") from exc
+        return value
 
 
 class TenantResponse(BaseModel):

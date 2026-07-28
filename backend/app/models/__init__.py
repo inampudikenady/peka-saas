@@ -12,3 +12,19 @@ from app.models.connector import (
     ConnectorRegistrationToken,
     ManagedConnector,
 )
+from app.models.document import (
+    Document,
+    DocumentAuditEvent,
+    DocumentChunk,
+    DocumentIdempotencyRecord,
+    DocumentParsedSection,
+    DocumentVersion,
+    IngestionJob,
+    IngestionWorkerHeartbeat,
+)
+from app.models.ai_conversation import (
+    AIConversation,
+    AIConversationMessage,
+    AIMessageRole,
+    AIMessageStatus,
+)

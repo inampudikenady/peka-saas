@@ -6,5 +6,10 @@ psycopg[binary]==3.2.9
 SQLAlchemy==2.0.41
 alembic==1.16.4
 python-jose[cryptography]==3.5.0
+cryptography==49.0.0
 passlib[argon2]==1.7.4
 httpx==0.28.1
+python-multipart==0.0.20
+pypdf==5.9.0
+python-docx==1.2.0
+openpyxl==3.1.5

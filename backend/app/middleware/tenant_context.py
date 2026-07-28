@@ -13,6 +13,10 @@ from app.services.tenant_resolver import TenantResolver
 logger = logging.getLogger(__name__)
 
 TENANT_PATH_PATTERN = re.compile(r"^/t/([^/]+)(/.*)$")
+CONNECTOR_AUTHENTICATED_PATH_PATTERN = re.compile(
+    rf"^{re.escape(settings.api_prefix)}/connectors/[^/]+/(heartbeat|documents(?:/status)?)$"
+)
+CONNECTOR_REGISTRATION_PATH = f"{settings.api_prefix}/connectors/register"
 
 
 SKIP_PATH_PREFIXES = (
@@ -22,6 +26,15 @@ SKIP_PATH_PREFIXES = (
     "/api/v1/openapi.json",
     "/api/v1/platform",
 )
+
+
+def is_tenant_neutral_connector_request(method: str, path: str) -> bool:
+    """Connector identity comes from credentials, never HTTP routing headers."""
+    if method.upper() == "POST" and path == CONNECTOR_REGISTRATION_PATH:
+        return True
+    return method.upper() in {"GET", "POST"} and (
+        CONNECTOR_AUTHENTICATED_PATH_PATTERN.fullmatch(path) is not None
+    )
 
 
 class TenantContextMiddleware(BaseHTTPMiddleware):
@@ -38,7 +51,9 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
 
-        if path.startswith(SKIP_PATH_PREFIXES):
+        if path.startswith(SKIP_PATH_PREFIXES) or is_tenant_neutral_connector_request(
+            request.method, path
+        ):
             return await call_next(request)
 
         host = request.headers.get("host", "")

@@ -10,6 +10,9 @@
 | Register with one-time token | No | No | No | No | Yes |
 | Send authenticated heartbeat | No | No | No | No | Yes |
 | Read any connector secret/hash | No | No | No | No | No |
+| View own-tenant operational document inventory | No impersonation | No impersonation | Yes | No | No |
+| Upload/delete connector-owned documents | No | No | No | No | Yes, authenticated connector only |
+| Search own-tenant indexed documents | No impersonation | No impersonation | Yes | Yes | No |
 
 ## Status interpretation for every role
 
@@ -17,4 +20,4 @@ All roles see the same SaaS-derived connector status. Healthy source counts indi
 
 `Connected`, `Degraded`, `Out of Sync`, `Disconnected`, `Authentication Failed`, and `Retired` are currently presented. `In Sync` is reserved and hidden until data synchronization exists.
 
-> Connected means the connector is communicating with PEKA SaaS. It does not mean source data has been uploaded or synchronized.
+> Connected means the connector is communicating with PEKA. It does not mean source data has been uploaded or synchronized.

@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from app.models.connector import (
@@ -31,8 +31,23 @@ class ConnectorRepository:
     def get_registration_token(self, tenant_id: UUID, token_id: UUID) -> ConnectorRegistrationToken | None:
         return self.db.scalar(select(ConnectorRegistrationToken).where(ConnectorRegistrationToken.id == token_id, ConnectorRegistrationToken.tenant_id == tenant_id))
 
-    def list_registration_tokens(self, tenant_id: UUID) -> list[ConnectorRegistrationToken]:
-        return list(self.db.scalars(select(ConnectorRegistrationToken).where(ConnectorRegistrationToken.tenant_id == tenant_id).order_by(ConnectorRegistrationToken.created_at.desc())).all())
+    def list_registration_tokens(
+        self,
+        tenant_id: UUID,
+        *,
+        include_inactive: bool = False,
+        now: datetime | None = None,
+    ) -> list[ConnectorRegistrationToken]:
+        stmt = select(ConnectorRegistrationToken).where(ConnectorRegistrationToken.tenant_id == tenant_id)
+        if not include_inactive:
+            if now is None:
+                raise ValueError("now is required when filtering usable registration tokens")
+            stmt = stmt.where(
+                ConnectorRegistrationToken.used_at.is_(None),
+                ConnectorRegistrationToken.revoked_at.is_(None),
+                ConnectorRegistrationToken.expires_at > now,
+            )
+        return list(self.db.scalars(stmt.order_by(ConnectorRegistrationToken.created_at.desc())).all())
 
     def list_unrecorded_expired_tokens(self, now: datetime) -> list[ConnectorRegistrationToken]:
         return list(self.db.scalars(select(ConnectorRegistrationToken).where(
@@ -45,6 +60,14 @@ class ConnectorRepository:
     def get_active_by_instance(self, tenant_id: UUID, instance_id: UUID) -> ManagedConnector | None:
         return self.db.scalar(select(ManagedConnector).where(ManagedConnector.tenant_id == tenant_id, ManagedConnector.instance_id == instance_id, ManagedConnector.retired_at.is_(None)))
 
+    def count_active_for_tenant(self, tenant_id: UUID) -> int:
+        return self.db.scalar(
+            select(func.count(ManagedConnector.id)).where(
+                ManagedConnector.tenant_id == tenant_id,
+                ManagedConnector.retired_at.is_(None),
+            )
+        ) or 0
+
     def get(self, tenant_id: UUID, connector_id: UUID) -> ManagedConnector | None:
         return self.db.scalar(select(ManagedConnector).where(ManagedConnector.id == connector_id, ManagedConnector.tenant_id == tenant_id))
 
@@ -52,11 +75,17 @@ class ConnectorRepository:
         """Public secret authentication and platform inventory are the only callers."""
         return self.db.get(ManagedConnector, connector_id)
 
-    def list_for_tenant(self, tenant_id: UUID) -> list[ManagedConnector]:
-        return list(self.db.scalars(select(ManagedConnector).where(ManagedConnector.tenant_id == tenant_id).order_by(ManagedConnector.name, ManagedConnector.registered_at.desc())).all())
+    def list_for_tenant(self, tenant_id: UUID, *, include_retired: bool = False) -> list[ManagedConnector]:
+        stmt = select(ManagedConnector).where(ManagedConnector.tenant_id == tenant_id)
+        if not include_retired:
+            stmt = stmt.where(ManagedConnector.retired_at.is_(None))
+        return list(self.db.scalars(stmt.order_by(ManagedConnector.name, ManagedConnector.registered_at.desc())).all())
 
-    def list_for_platform(self) -> list[tuple[ManagedConnector, Tenant]]:
-        rows = self.db.execute(select(ManagedConnector, Tenant).join(Tenant, Tenant.id == ManagedConnector.tenant_id).order_by(Tenant.display_name, ManagedConnector.name)).all()
+    def list_for_platform(self, *, include_retired: bool = False) -> list[tuple[ManagedConnector, Tenant]]:
+        stmt = select(ManagedConnector, Tenant).join(Tenant, Tenant.id == ManagedConnector.tenant_id)
+        if not include_retired:
+            stmt = stmt.where(ManagedConnector.retired_at.is_(None))
+        rows = self.db.execute(stmt.order_by(Tenant.display_name, ManagedConnector.name)).all()
         return [(connector, tenant) for connector, tenant in rows]
 
     def list_all(self) -> list[ManagedConnector]:

@@ -17,6 +17,7 @@ from app.api.routes.tenant.auth import router as auth_router
 from app.api.routes.tenant.security import router as security_router
 from app.api.tenant_context import get_current_tenant_context
 from app.core.config import settings
+from app.core.exceptions import OIDCConfigurationError
 from app.core.security import create_access_token, create_tenant_access_token
 from app.core.tenant_context import TenantContext
 from app.core.tenant_definition import TenantDefinition
@@ -61,9 +62,12 @@ class FakeDB:
 
 class FakeSSOService:
     config = SimpleNamespace(
-        provider=SSOProvider.ENTRA_ID,
+        provider=SSOProvider.MICROSOFT_ENTRA,
+        entra_tenant_id="11111111-1111-4111-8111-111111111111",
         issuer_url="https://issuer.example",
         client_id="client-id",
+        client_secret="client-secret",
+        client_secret_configured=True,
         authorization_endpoint="https://issuer.example/authorize",
         token_endpoint="https://issuer.example/token",
         jwks_uri="https://issuer.example/keys",
@@ -73,6 +77,9 @@ class FakeSSOService:
     )
 
     def get(self, tenant_id):
+        return self.config
+
+    def resolve_for_authentication(self, tenant_id):
         return self.config
 
     def upsert(self, tenant_id, payload):
@@ -116,6 +123,18 @@ def test_tenant_cookie_set_after_local_login():
     assert "access_token" not in response.json()
 
 
+def test_public_sso_options_expose_only_provider_and_enabled_state():
+    context = make_context()
+    app = build_app(context)
+    app.dependency_overrides[get_tenant_sso_service] = lambda: FakeSSOService()
+    response = TestClient(app).get("/api/v1/tenant/auth/sso-options")
+    assert response.status_code == 200
+    assert response.json() == {
+        "provider": "microsoft_entra",
+        "enabled": True,
+    }
+
+
 def test_tenant_cookie_set_after_activation():
     context = make_context()
     user = make_user(context)
@@ -136,7 +155,11 @@ def test_callback_redirects_and_sets_cookie():
     context = make_context()
     user = make_user(context, local=False)
     app = build_app(context)
-    auth_session = SimpleNamespace(nonce="nonce")
+    auth_session = SimpleNamespace(
+        nonce="nonce",
+        redirect_uri="https://vitwo.peka.com/callback",
+        code_verifier="verifier",
+    )
     app.dependency_overrides[get_tenant_sso_service] = lambda: FakeSSOService()
     app.dependency_overrides[get_tenant_oidc_auth_session_service] = lambda: (
         SimpleNamespace(validate=lambda **kwargs: auth_session, consume=lambda session: None)
@@ -155,6 +178,72 @@ def test_callback_redirects_and_sets_cookie():
     assert response.status_code == 303
     assert response.headers["location"] == "/t/vitwo/ai"
     assert "peka_tenant_session=" in response.headers["set-cookie"]
+
+
+def test_login_initiation_uses_common_oidc_discovery_config_and_pkce():
+    context = make_context()
+    app = build_app(context)
+    app.dependency_overrides[get_tenant_sso_service] = lambda: FakeSSOService()
+    auth_session = SimpleNamespace(
+        nonce="nonce",
+        code_verifier="verifier",
+    )
+    app.dependency_overrides[get_tenant_oidc_auth_session_service] = lambda: (
+        SimpleNamespace(
+            create=lambda **kwargs: (auth_session, "state"),
+            code_challenge=lambda verifier: "challenge",
+        )
+    )
+    response = TestClient(app).get(
+        "/api/v1/tenant/auth/login",
+        follow_redirects=False,
+    )
+    assert response.status_code == 307
+    assert response.headers["location"].startswith(
+        "https://issuer.example/authorize?"
+    )
+    assert "code_challenge=challenge" in response.headers["location"]
+    assert "state=state" in response.headers["location"]
+
+
+def test_provider_oauth_error_is_safe_and_consumes_state():
+    context = make_context()
+    app = build_app(context)
+    session = SimpleNamespace(
+        nonce="nonce",
+        redirect_uri="https://vitwo.peka.com/callback",
+        code_verifier="verifier",
+    )
+    consumed = []
+    app.dependency_overrides[get_tenant_oidc_auth_session_service] = lambda: (
+        SimpleNamespace(
+            validate=lambda **kwargs: session,
+            consume=lambda value: consumed.append(value),
+        )
+    )
+    response = TestClient(app).get(
+        "/api/v1/tenant/auth/callback"
+        "?state=state&error=access_denied&error_description=sensitive",
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Identity provider rejected the login."
+    assert "sensitive" not in response.text
+    assert consumed == [session]
+
+
+def test_expected_discovery_failure_does_not_return_raw_500():
+    context = make_context()
+    app = build_app(context)
+    app.dependency_overrides[get_tenant_sso_service] = lambda: SimpleNamespace(
+        resolve_for_authentication=lambda tenant_id: (_ for _ in ()).throw(
+            OIDCConfigurationError("OIDC discovery failed for the configured issuer.")
+        )
+    )
+    response = TestClient(app).get("/api/v1/tenant/auth/login")
+    assert response.status_code == 400
+    assert response.json()["detail"] == (
+        "OIDC discovery failed for the configured issuer."
+    )
 
 
 def test_me_succeeds_with_valid_cookie():
@@ -240,8 +329,8 @@ def test_bootstrap_local_admin_can_manage_sso():
         "/api/v1/tenant/admin/security/sso",
         headers={"Authorization": f"Bearer {token}"},
         json={
-            "provider": "entra_id",
-            "issuer_url": "https://issuer.example",
+            "provider": "microsoft_entra",
+            "entra_tenant_id": "11111111-1111-4111-8111-111111111111",
             "client_id": "client-id",
             "client_secret": "new-secret",
             "enabled": True,

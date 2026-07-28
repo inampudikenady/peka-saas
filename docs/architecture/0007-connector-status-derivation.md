@@ -15,7 +15,7 @@ SaaS derives status from successful receive time, expected interval, source summ
 
 `In Sync` remains in the persistence enum for forward compatibility, but SaaS does not derive or display it. Local source health means only that the connector can read and scan the source. `In Sync` may be introduced only after connector-to-SaaS data upload exists and synchronization can be measured.
 
-> Connected means the connector is communicating with PEKA SaaS. It does not mean source data has been uploaded or synchronized.
+> Connected means the connector is communicating with PEKA. It does not mean source data has been uploaded or synchronized.
 
 ## Consequences
 

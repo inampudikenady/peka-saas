@@ -1,5 +1,11 @@
 # PEKA SaaS Vision
 
+## Document foundation delivered
+
+The connector-to-PEKA knowledge foundation includes durable authenticated receipt, document/version metadata, a staged PostgreSQL worker queue, TXT/Markdown/CSV/PDF/DOCX/XLSX parsing, deterministic citation-aware chunks, embedding and Qdrant provider boundaries, Knowledge Service retrieval, and tenant-admin document visibility.
+
+Next milestones include OCR/image extraction, S3 provider implementation, hybrid lexical/vector retrieval, storage retention automation, evaluation, additional knowledge source types, and a future AI router that calls Knowledge Service. These extend rather than replace PostgreSQL and object storage as the system of record.
+
 ## Vision
 
 PEKA is a commercial, enterprise-grade, multi-tenant SaaS platform that enables organizations to securely connect their on-premises and cloud infrastructure with AI-powered operational intelligence.

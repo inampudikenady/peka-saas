@@ -14,10 +14,11 @@ router = APIRouter(prefix="/platform/connectors")
 
 @router.get("", response_model=list[ConnectorSummaryResponse])
 def list_connectors(
+    include_retired: bool = False,
     current_user: PlatformAdmin = Depends(allow_platform_user),
     service: ConnectorService = Depends(get_connector_service),
 ):
-    return service.list_platform_connectors()
+    return service.list_platform_connectors(include_retired=include_retired)
 
 
 @router.get("/{connector_id}", response_model=ConnectorDetailResponse)
@@ -30,4 +31,3 @@ def connector_detail(
         return service.get_platform_detail(connector_id)
     except ConnectorServiceError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-

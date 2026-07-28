@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+import base64
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
@@ -24,11 +25,13 @@ class TenantOIDCAuthSessionService:
     ) -> tuple[TenantOIDCAuthSession, str]:
         raw_state = secrets.token_urlsafe(32)
         nonce = secrets.token_urlsafe(32)
+        code_verifier = secrets.token_urlsafe(64)
 
         session = TenantOIDCAuthSession(
             tenant_id=tenant_id,
             state_hash=self.hash_state(raw_state),
             nonce=nonce,
+            code_verifier=code_verifier,
             redirect_uri=redirect_uri,
             expires_at=datetime.now(UTC) + timedelta(minutes=10),
         )
@@ -38,6 +41,11 @@ class TenantOIDCAuthSessionService:
         self.repository.refresh(created_session)
 
         return created_session, raw_state
+
+    @staticmethod
+    def code_challenge(code_verifier: str) -> str:
+        digest = hashlib.sha256(code_verifier.encode()).digest()
+        return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
 
     def validate(
         self,

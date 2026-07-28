@@ -1,14 +1,15 @@
 from urllib.parse import urlencode
 
-from app.models.tenant_sso_config import TenantSSOConfig
+from app.services.tenant_sso_service import OIDCRuntimeConfiguration
 
 
 class OIDCAuthorizationService:
     def build_authorization_url(
         self,
-        config: TenantSSOConfig,
+        config: OIDCRuntimeConfiguration,
         state: str,
         nonce: str,
+        code_challenge: str,
     ) -> str:
         query = urlencode(
             {
@@ -18,7 +19,9 @@ class OIDCAuthorizationService:
                 "scope": config.scopes,
                 "state": state,
                 "nonce": nonce,
+                "code_challenge": code_challenge,
+                "code_challenge_method": "S256",
             }
         )
-
-        return f"{config.authorization_endpoint}?{query}"
+        separator = "&" if "?" in config.authorization_endpoint else "?"
+        return f"{config.authorization_endpoint}{separator}{query}"

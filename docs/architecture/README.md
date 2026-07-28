@@ -32,3 +32,8 @@ Example:
 New ADRs should never modify the intent of previous accepted decisions. If a decision changes, create a new ADR that supersedes the earlier one.
 
 Connector lifecycle decisions are recorded in ADRs 0004–0008. ADR-0007 explicitly supersedes ADR-0003's original coarse status labels and fixed warning/offline thresholds.
+
+ADR-0009 records the document system of record, asynchronous processing, provider boundaries, derived Qdrant index, and cited retrieval/AI flow.
+
+The authoritative stateless grounded-answer design is documented in
+[AI Answer Service Architecture v1](ai-answer-service.md).

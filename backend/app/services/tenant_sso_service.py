@@ -1,14 +1,38 @@
 import logging
+from dataclasses import dataclass
 from uuid import UUID
 
-from app.models.tenant_sso_config import TenantSSOConfig
+from app.core.exceptions import OIDCConfigurationError
 from app.core.url_builder import build_tenant_auth_callback_url
+from app.models.tenant_sso_config import SSOProvider, TenantSSOConfig
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_sso_repository import TenantSSORepository
 from app.schemas.tenant_sso import TenantSSOConfigUpdate
-from app.services.oidc_discovery_service import OIDCDiscoveryService
+from app.services.oidc_discovery_service import (
+    OIDCDiscoveryService,
+    entra_issuer_url,
+    entra_tenant_id_from_issuer,
+    normalize_entra_tenant_id,
+    normalize_issuer_url,
+)
+from app.services.oidc_secret_cipher import OIDCSecretCipher
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class OIDCRuntimeConfiguration:
+    tenant_id: UUID
+    provider: SSOProvider
+    issuer_url: str
+    client_id: str
+    client_secret: str
+    authorization_endpoint: str
+    token_endpoint: str
+    jwks_uri: str
+    redirect_uri: str
+    scopes: str
+    enabled: bool
 
 
 class TenantSSOService:
@@ -17,74 +41,156 @@ class TenantSSOService:
         repository: TenantSSORepository,
         tenant_repository: TenantRepository,
         discovery_service: OIDCDiscoveryService,
+        secret_cipher: OIDCSecretCipher | None = None,
     ) -> None:
         self.repository = repository
         self.tenant_repository = tenant_repository
         self.discovery_service = discovery_service
+        self.secret_cipher = secret_cipher or OIDCSecretCipher()
 
     def get(self, tenant_id: UUID) -> TenantSSOConfig | None:
-        return self.repository.get_by_tenant_id(tenant_id)
+        config = self.repository.get_by_tenant_id(tenant_id)
+        if config is None:
+            return None
+        changed = False
+        if (
+            config.client_secret_encrypted
+            and not self.secret_cipher.is_encrypted(config.client_secret_encrypted)
+        ):
+            config.client_secret_encrypted = self.secret_cipher.encrypt(
+                config.client_secret_encrypted
+            )
+            changed = True
+        if (
+            config.provider == SSOProvider.MICROSOFT_ENTRA
+            and not config.entra_tenant_id
+        ):
+            config.entra_tenant_id = entra_tenant_id_from_issuer(config.issuer_url)
+            changed = bool(config.entra_tenant_id) or changed
+        tenant = self.tenant_repository.get_by_id(tenant_id)
+        if tenant is not None:
+            redirect_uri = build_tenant_auth_callback_url(
+                slug=tenant.slug,
+                hostname=tenant.subdomain,
+                tenant_url=tenant.tenant_url,
+            )
+            if config.redirect_uri != redirect_uri:
+                config.redirect_uri = redirect_uri
+                changed = True
+        if changed:
+            self.repository.commit()
+            self.repository.refresh(config)
+        return config
+
+    def resolve_for_authentication(
+        self, tenant_id: UUID
+    ) -> OIDCRuntimeConfiguration:
+        config = self.get(tenant_id)
+        if config is None or not config.enabled:
+            raise OIDCConfigurationError("SSO is not configured for this tenant.")
+        required = {
+            "issuer URL": config.issuer_url,
+            "client ID": config.client_id,
+            "client secret": config.client_secret_encrypted,
+            "redirect URI": config.redirect_uri,
+        }
+        missing = next((label for label, value in required.items() if not value), None)
+        if missing:
+            raise OIDCConfigurationError(f"OIDC {missing} is missing.")
+        discovery = self.discovery_service.discover(config.issuer_url)
+        return OIDCRuntimeConfiguration(
+            tenant_id=tenant_id,
+            provider=config.provider,
+            issuer_url=normalize_issuer_url(config.issuer_url),
+            client_id=config.client_id,
+            client_secret=self.secret_cipher.decrypt(config.client_secret_encrypted),
+            authorization_endpoint=discovery.authorization_endpoint,
+            token_endpoint=discovery.token_endpoint,
+            jwks_uri=discovery.jwks_uri,
+            redirect_uri=config.redirect_uri,
+            scopes="openid profile email",
+            enabled=True,
+        )
 
     def upsert(
         self,
         tenant_id: UUID,
         payload: TenantSSOConfigUpdate,
     ) -> TenantSSOConfig:
-        discovery = self.discovery_service.discover(payload.issuer_url)
         existing = self.repository.get_by_tenant_id(tenant_id)
-
         if (
             not payload.client_secret
             and (existing is None or not existing.client_secret_encrypted)
         ):
-            raise ValueError("Client secret is required for initial SSO configuration.")
+            raise OIDCConfigurationError(
+                "Client secret is required for initial SSO configuration."
+            )
 
         tenant = self.tenant_repository.get_by_id(tenant_id)
         if tenant is None:
-            raise ValueError(f"Tenant '{tenant_id}' was not found.")
+            raise OIDCConfigurationError("The tenant was not found.")
 
+        if payload.provider == SSOProvider.MICROSOFT_ENTRA:
+            assert payload.entra_tenant_id is not None
+            entra_tenant_id = normalize_entra_tenant_id(payload.entra_tenant_id)
+            issuer_url = entra_issuer_url(entra_tenant_id)
+        else:
+            entra_tenant_id = None
+            assert payload.issuer_url is not None
+            issuer_url = normalize_issuer_url(payload.issuer_url)
+
+        discovery = self.discovery_service.discover(issuer_url)
         redirect_uri = build_tenant_auth_callback_url(
             slug=tenant.slug,
             hostname=tenant.subdomain,
+            tenant_url=tenant.tenant_url,
         )
+        assert existing is None or existing.client_secret_encrypted is not None
+        if payload.client_secret:
+            encrypted_secret = self.secret_cipher.encrypt(payload.client_secret)
+        elif self.secret_cipher.is_encrypted(existing.client_secret_encrypted):
+            encrypted_secret = existing.client_secret_encrypted
+        else:
+            encrypted_secret = self.secret_cipher.encrypt(
+                existing.client_secret_encrypted
+            )
 
         try:
             if existing is None:
-                result = TenantSSOConfig(
-                    tenant_id=tenant_id,
-                    provider=payload.provider,
-                    issuer_url=discovery.issuer,
-                    client_id=payload.client_id,
-                    client_secret_encrypted=payload.client_secret,
-                    authorization_endpoint=discovery.authorization_endpoint,
-                    token_endpoint=discovery.token_endpoint,
-                    jwks_uri=discovery.jwks_uri,
-                    redirect_uri=redirect_uri,
-                    scopes=payload.scopes,
-                    enabled=payload.enabled,
-                )
-                result = self.repository.add(result)
+                result = self.repository.add(TenantSSOConfig(tenant_id=tenant_id))
             else:
-                existing.provider = payload.provider
-                existing.issuer_url = discovery.issuer
-                existing.client_id = payload.client_id
-                if payload.client_secret:
-                    existing.client_secret_encrypted = payload.client_secret
-                existing.authorization_endpoint = discovery.authorization_endpoint
-                existing.token_endpoint = discovery.token_endpoint
-                existing.jwks_uri = discovery.jwks_uri
-                existing.redirect_uri = redirect_uri
-                existing.scopes = payload.scopes
-                existing.enabled = payload.enabled
                 result = existing
+            result.provider = payload.provider
+            result.entra_tenant_id = entra_tenant_id
+            result.issuer_url = normalize_issuer_url(discovery.issuer)
+            result.client_id = payload.client_id
+            result.client_secret_encrypted = encrypted_secret
+            result.authorization_endpoint = discovery.authorization_endpoint
+            result.token_endpoint = discovery.token_endpoint
+            result.jwks_uri = discovery.jwks_uri
+            result.redirect_uri = redirect_uri
+            result.scopes = "openid profile email"
+            result.enabled = payload.enabled
 
             self.repository.commit()
             self.repository.refresh(result)
-
-            logger.info("Updated SSO configuration for tenant %s", tenant_id)
+            logger.info(
+                "Updated tenant SSO configuration",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "provider": payload.provider.value,
+                    "failure_stage": None,
+                },
+            )
             return result
-
         except Exception:
             self.repository.rollback()
-            logger.exception("Failed to update SSO configuration for tenant %s", tenant_id)
+            logger.exception(
+                "Failed to update tenant SSO configuration",
+                extra={
+                    "tenant_id": str(tenant_id),
+                    "provider": payload.provider.value,
+                    "failure_stage": "persist_configuration",
+                },
+            )
             raise

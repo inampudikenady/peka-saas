@@ -61,7 +61,7 @@ Both platform roles have a platform profile. Tenant users have tenant-scoped pro
 
 Platform routes are `/platform/login`, `/platform/overview`, `/platform/tenants`, `/platform/tenants/new`, `/platform/tenants/[slug]`, `/platform/administration` and its `users`, `tenant-management`, `tenant-management/[slug]`, `licensing`, and `settings` sections, plus `/platform/profile` and `/platform/reset-password`. The `/platform/tenants/new` workflow is reached from administrator-only tenant management even though its established route is preserved. Legacy `/platform/dashboard` is a role-aware redirect.
 
-Tenant routes live under `/t/[tenantSlug]`: root resolution, setup, login, AI, connectors, and `administration` sections for users, authentication, connectors, settings, and audit. Authenticated tenant roots and legacy `app` routes resolve to AI Assistant. The legacy `administration/roles` path redirects to User Management so existing bookmarks do not produce a 404.
+Tenant routes live under `/t/[tenantSlug]`: root resolution, setup, login, the future AI surface, connectors, and `administration` sections for users, authentication, operational documents, settings, and audit. Documents are not normal-user primary navigation. Authenticated tenant roots and legacy `app` routes resolve to the AI placeholder. The legacy `administration/roles` path redirects to User Management so existing bookmarks do not produce a 404.
 
 ## Deferred V2 ideas
 

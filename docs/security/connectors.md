@@ -12,4 +12,10 @@
 
 Connector status does not assert data synchronization. Healthy source reports mean the connector can locally read and scan those sources. `In Sync` is reserved for a future data-upload lifecycle and is neither derived nor displayed today.
 
-> Connected means the connector is communicating with PEKA SaaS. It does not mean source data has been uploaded or synchronized.
+> Connected means the connector is communicating with PEKA. It does not mean source data has been uploaded or synchronized.
+
+## Document delivery
+
+Document APIs reuse constant-time connector-secret verification and require the path/header connector IDs to match. The authenticated database record supplies tenant ownership; `Host`, `X-Forwarded-Host`, multipart metadata, filenames, and paths never do. Metadata rejects extra ownership fields and path traversal. Binary receipt is size-limited, hash-verified, and atomically persisted before acknowledgement.
+
+Tenant document inventory and retrieval endpoints require the existing tenant session and scope every PostgreSQL query by the authenticated tenant. Qdrant queries always add tenant equality independently of optional user filters. Provider credentials remain backend-only and safe ingestion errors omit provider responses and object paths.

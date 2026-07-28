@@ -26,9 +26,10 @@ def build_tenant_admin_setup_url(
 def build_tenant_auth_callback_url(
     slug: str,
     hostname: str | None = None,
+    tenant_url: str | None = None,
 ) -> str:
-    tenant_url = build_tenant_url(slug=slug, hostname=hostname)
-    return f"{tenant_url.rstrip('/')}/api/v1/tenant/auth/callback"
+    public_base_url = tenant_url or build_tenant_url(slug=slug, hostname=hostname)
+    return f"{public_base_url.rstrip('/')}/api/v1/tenant/auth/callback"
 
 
 def build_tenant_dashboard_path(slug: str) -> str:
