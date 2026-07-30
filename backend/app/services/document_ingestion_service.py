@@ -27,6 +27,7 @@ from app.repositories.document_repository import DocumentRepository
 from app.schemas.document_api import ConnectorDocumentAcknowledgement, ConnectorDocumentMetadata
 from app.schemas.document_api import DocumentErrorCode
 from app.services.object_storage import ObjectStorage, ObjectTooLargeError
+from app.services.ingestion_runtime import ingestion_runtime
 
 
 logger = logging.getLogger(__name__)
@@ -142,11 +143,14 @@ class DocumentIngestionService:
 
         now = datetime.now(timezone.utc)
         document = self.repository.get_logical(
-            connector.tenant_id, connector.id, metadata.source_id, metadata.document_key
+            connector.tenant_id, metadata.source_id, metadata.document_key
         )
         if document is None:
             document = Document(
                 id=uuid4(), tenant_id=connector.tenant_id, connector_id=connector.id,
+                created_by_connector_id=connector.id,
+                last_seen_by_connector_id=connector.id,
+                last_synchronized_at=now,
                 source_id=metadata.source_id, document_key=metadata.document_key,
                 filename=metadata.filename, normalized_filename=metadata.filename.casefold(),
                 relative_path=metadata.relative_path, mime_type=metadata.mime_type,
@@ -155,6 +159,11 @@ class DocumentIngestionService:
             )
             self.repository.add(document)
             self.repository.flush()
+        else:
+            document.connector_id = connector.id
+            document.last_seen_by_connector_id = connector.id
+            document.last_synchronized_at = now
+            document.source_id = metadata.source_id
         existing = self.repository.get_version_by_hash(
             connector.tenant_id, document.id, content_hash
         )
@@ -169,7 +178,7 @@ class DocumentIngestionService:
         version_id = uuid4()
         safe_filename = re.sub(r"[^A-Za-z0-9._-]", "_", metadata.filename)
         object_key = (
-            f"tenants/{connector.tenant_id}/connectors/{connector.id}/documents/"
+            f"tenants/{connector.tenant_id}/documents/"
             f"{document.id}/versions/{version_id}/{safe_filename}"
         )
         try:
@@ -201,7 +210,7 @@ class DocumentIngestionService:
                 "Declared SHA-256 does not match uploaded bytes.",
             )
         logger.info(
-            "Document object stored and hash verified",
+            "document_stored",
             extra={"tenant_id": str(connector.tenant_id),
                    "connector_id": str(connector.id), "document_id": str(document.id)},
         )
@@ -233,6 +242,7 @@ class DocumentIngestionService:
                 connector, idempotency_key, fingerprint, metadata, response
             )
             self.repository.commit()
+            ingestion_runtime.notify()
             return response
         version = DocumentVersion(
             id=version_id, document_id=document.id, tenant_id=connector.tenant_id,
@@ -240,6 +250,7 @@ class DocumentIngestionService:
             size_bytes=stored.size_bytes, modified_at=modified_at,
             object_key=stored.key, storage_status=StorageStatus.STORED,
             ingestion_status=IngestionStatus.RECEIVED, received_at=now,
+            stored_at=now, queued_at=now,
         )
         document.current_version_id = version.id
         self.repository.add(version)
@@ -278,13 +289,14 @@ class DocumentIngestionService:
             self.storage.delete(object_key)
             raise
         logger.info(
-            "Document version accepted",
+            "job_queued",
             extra={
                 "tenant_id": str(connector.tenant_id), "connector_id": str(connector.id),
                 "document_id": str(document.id), "version_id": str(version.id),
                 "stage": IngestionJobType.PARSE_DOCUMENT.value,
             },
         )
+        ingestion_runtime.notify()
         return response
 
     def _delete(
@@ -296,7 +308,7 @@ class DocumentIngestionService:
     ) -> ConnectorDocumentAcknowledgement:
         now = datetime.now(timezone.utc)
         document = self.repository.get_logical(
-            connector.tenant_id, connector.id, metadata.source_id, metadata.document_key
+            connector.tenant_id, metadata.source_id, metadata.document_key
         )
         if document is None:
             raise DocumentIngestionError(
@@ -304,6 +316,9 @@ class DocumentIngestionService:
                 "The document was not found for this connector.", 404,
             )
         if not document.is_deleted:
+            document.connector_id = connector.id
+            document.last_seen_by_connector_id = connector.id
+            document.last_synchronized_at = now
             document.lifecycle_status = DocumentLifecycleStatus.DELETED
             document.is_deleted = True
             document.deleted_at = now
@@ -317,6 +332,7 @@ class DocumentIngestionService:
         )
         self._record_idempotency(connector, idempotency_key, fingerprint, metadata, response)
         self.repository.commit()
+        ingestion_runtime.notify()
         logger.info(
             "Document deletion accepted",
             extra={

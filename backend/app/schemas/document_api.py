@@ -129,10 +129,24 @@ class DocumentVersionView(BaseModel):
     ingestion_status: str
     storage_status: str
     parser_name: str | None
+    detected_format: str | None
+    source_format: str | None
+    format_detection_confidence: float | None
+    format_detection_reason: str | None
     chunker_name: str | None
     embedding_provider: str | None
     embedding_model: str | None
     received_at: datetime
+    stored_at: datetime | None
+    queued_at: datetime | None
+    parsing_started_at: datetime | None
+    parsed_at: datetime | None
+    chunking_started_at: datetime | None
+    chunked_at: datetime | None
+    embedding_started_at: datetime | None
+    embedding_completed_at: datetime | None
+    indexing_started_at: datetime | None
+    indexing_completed_at: datetime | None
     indexed_at: datetime | None
     error_code: str | None
     error_message: str | None
@@ -140,10 +154,17 @@ class DocumentVersionView(BaseModel):
 
 class DocumentView(BaseModel):
     id: UUID
-    connector_id: UUID
+    connector_id: UUID | None
+    created_by_connector_id: UUID | None
+    last_seen_by_connector_id: UUID | None
+    last_synchronized_at: datetime | None
+    source_freshness: str
+    source_connector_name: str | None
+    source_connector_status: str
     source_id: str
     document_key: str
     filename: str
+    extension: str
     relative_path: str
     mime_type: str
     is_deleted: bool
@@ -165,10 +186,21 @@ class DocumentView(BaseModel):
 
 class DocumentListItem(BaseModel):
     id: UUID
-    connector_id: UUID
+    connector_id: UUID | None
+    created_by_connector_id: UUID | None
+    last_seen_by_connector_id: UUID | None
+    last_synchronized_at: datetime | None
+    source_freshness: str
+    source_connector_name: str | None
+    source_connector_status: str
     source_id: str
     filename: str
+    extension: str
     mime_type: str
+    detected_format: str | None = None
+    source_format: str | None = None
+    format_detection_confidence: float | None = None
+    format_detection_reason: str | None = None
     ingestion_status: str
     chunk_count: int
     embedding_status: str
@@ -182,6 +214,23 @@ class DocumentListItem(BaseModel):
     worker_status: str
     is_deleted: bool
     updated_at: datetime
+
+
+class IngestionHealthView(BaseModel):
+    runtime_mode: str
+    worker_status: str
+    last_heartbeat_at: datetime | None
+    runtime_started_at: datetime | None
+    current_job_id: UUID | None
+    queued_job_count: int
+    processing_job_count: int
+    failed_job_count: int
+    latest_job_claimed_at: datetime | None
+    latest_successful_job_at: datetime | None
+    latest_safe_error: str | None
+    embedding_status: str
+    qdrant_status: str
+    remediation: str | None
 
 
 class SearchFilters(BaseModel):

@@ -23,6 +23,15 @@ def build_tenant_admin_setup_url(
     return f"{tenant_url.rstrip('/')}/setup-admin?token={token}"
 
 
+def build_tenant_password_reset_url(
+    slug: str,
+    token: str,
+    hostname: str | None = None,
+) -> str:
+    tenant_url = build_tenant_url(slug=slug, hostname=hostname)
+    return f"{tenant_url.rstrip('/')}/reset-password?token={token}"
+
+
 def build_tenant_auth_callback_url(
     slug: str,
     hostname: str | None = None,

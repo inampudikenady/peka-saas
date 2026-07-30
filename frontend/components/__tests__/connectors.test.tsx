@@ -8,7 +8,7 @@ import { StatusBadge } from "@/components/status-badge";
 import type { ConnectorDetail as Detail, ManagedConnector } from "@/lib/types";
 
 const connector: ManagedConnector = {
-  id: "c-1", tenant_id: "t-1", tenant_name: "Acme", tenant_slug: "acme", name: "Acme Files", instance_id: "i-1",
+  id: "c-1", tenant_id: "t-1", tenant_name: "Acme", tenant_slug: "acme", tenant_timezone: "UTC", name: "Acme Files", instance_id: "i-1",
   version: "1.2.3", environment: "production", status: "connected", registered_at: "2026-07-20T10:00:00Z",
   last_heartbeat_at: "2026-07-20T10:01:00Z", last_seen_at: "2026-07-20T10:01:00Z", heartbeat_interval_seconds: 300,
   source_total: 1, source_healthy: 1, source_unhealthy: 0, source_disabled: 0, retired_at: null,
@@ -28,6 +28,11 @@ describe("connector presentation", () => {
     render(<ConnectorTable connectors={[connector]} detailBase="/platform/connectors" platform/>);
     expect(screen.getByText("Connector Name")).toBeInTheDocument(); expect(screen.getByText("Acme Files")).toBeInTheDocument();
     expect(screen.getByText("Acme")).toBeInTheDocument(); expect(screen.getByText("Open tenant portal")).toHaveAttribute("href", "/t/acme");
+    expect(screen.getByText("Open tenant portal")).toHaveClass("whitespace-nowrap");
+    expect(screen.getByText("Details")).toHaveClass("whitespace-nowrap");
+    expect(screen.getByText("Actions")).toHaveClass("w-72", "min-w-72", "pr-6");
+    expect(screen.getByText("Connector Name")).toHaveClass("pl-6");
+    expect(screen.getByRole("table")).toHaveClass("min-w-max");
   });
 
   it("shows every non-retired state by default and retired connectors on request", () => {

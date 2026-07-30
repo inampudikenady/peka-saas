@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO, Protocol
+
+from app.services.structured_text import detect_text_format, normalize_dokuwiki
 
 
 @dataclass(frozen=True)
@@ -26,15 +29,45 @@ class ParsedDocument:
     parser_name: str
     parser_version: str = "1"
     title: str | None = None
+    detected_format: str | None = None
+    detection_confidence: float | None = None
+    detection_reason: str | None = None
+    source_format: str | None = None
 
 
 class Parser(Protocol):
     def parse(self, stream: BinaryIO) -> ParsedDocument: ...
 
 
+def _markdown_sections(content: str) -> list[ParsedSection]:
+    sections: list[ParsedSection] = []
+    heading: str | None = None
+    buffer: list[str] = []
+    in_fence = False
+    for line in content.splitlines():
+        if line.lstrip().startswith(("```", "~~~")):
+            in_fence = not in_fence
+        heading_match = (
+            None if in_fence else re.match(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$", line)
+        )
+        if heading_match:
+            if buffer:
+                sections.append(
+                    ParsedSection("\n".join(buffer).strip(), section_title=heading)
+                )
+            heading = heading_match.group(2).strip() or None
+            buffer = [line]
+        else:
+            buffer.append(line)
+    if buffer or heading:
+        sections.append(ParsedSection("\n".join(buffer).strip(), section_title=heading))
+    return [section for section in sections if section.text.strip()]
+
+
 class TextParser:
-    def __init__(self, markdown: bool = False) -> None:
-        self.markdown = markdown
+    def __init__(self, filename: str = "document.txt", mime_type: str | None = None) -> None:
+        self.filename = filename
+        self.mime_type = mime_type
 
     def parse(self, stream: BinaryIO) -> ParsedDocument:
         raw = stream.read()
@@ -43,23 +76,23 @@ class TextParser:
         except UnicodeDecodeError:
             content = raw.decode("utf-8", errors="replace")
         content = content.replace("\r\n", "\n").replace("\r", "\n")
-        name = "markdown" if self.markdown else "text"
-        if self.markdown:
-            sections: list[ParsedSection] = []
-            heading: str | None = None
-            buffer: list[str] = []
-            for line in content.splitlines():
-                if line.lstrip().startswith("#"):
-                    if buffer:
-                        sections.append(ParsedSection("\n".join(buffer), section_title=heading))
-                        buffer = []
-                    heading = line.lstrip("#").strip() or None
-                else:
-                    buffer.append(line)
-            if buffer or heading:
-                sections.append(ParsedSection("\n".join(buffer), section_title=heading))
-            return ParsedDocument(sections, name, "1", sections[0].section_title if sections else None)
-        return ParsedDocument([ParsedSection(text=content)], name, "1")
+        detection = detect_text_format(self.filename, self.mime_type, content)
+        normalized = normalize_dokuwiki(content) if detection.detected_format == "dokuwiki" else content
+        sections = (
+            _markdown_sections(normalized)
+            if detection.detected_format in {"markdown", "dokuwiki"}
+            else [ParsedSection(text=normalized)]
+        )
+        return ParsedDocument(
+            sections=sections,
+            parser_name=detection.detected_format,
+            parser_version="2",
+            title=next((item.section_title for item in sections if item.section_title), None),
+            detected_format=detection.detected_format,
+            detection_confidence=detection.confidence,
+            detection_reason=detection.reason,
+            source_format=detection.source_format,
+        )
 
 
 class CsvParser:
@@ -159,25 +192,28 @@ class ParserRegistry:
     def register(self, extension: str, parser: Parser) -> None:
         self._parsers[extension.lower()] = parser
 
-    def get(self, filename: str) -> Parser:
+    def get(self, filename: str, mime_type: str | None = None) -> Parser:
         extension = Path(filename).suffix.lower()
+        if extension in {".txt", ".md", ".markdown"}:
+            return TextParser(filename, mime_type)
         try:
             return self._parsers[extension]
         except KeyError as exc:
             raise ValueError(f"Unsupported document extension: {extension or '(none)'}") from exc
 
     def availability(self) -> dict[str, bool]:
-        return {extension: True for extension in sorted(self._parsers)}
+        return {
+            extension: True
+            for extension in sorted({".txt", ".md", *self._parsers})
+        }
 
 
 parser_registry = ParserRegistry()
-parser_registry.register(".txt", TextParser())
-parser_registry.register(".md", TextParser(markdown=True))
 parser_registry.register(".csv", CsvParser())
 parser_registry.register(".pdf", PdfParser())
 parser_registry.register(".docx", DocxParser())
 parser_registry.register(".xlsx", XlsxParser())
 
 
-def parser_for(filename: str) -> Parser:
-    return parser_registry.get(filename)
+def parser_for(filename: str, mime_type: str | None = None) -> Parser:
+    return parser_registry.get(filename, mime_type)

@@ -25,6 +25,7 @@ class TenantMeResponse(BaseModel):
     tenant_id: str
     tenant_slug: str
     tenant_name: str
+    tenant_timezone: str
     role: TenantUserRole
     username: str | None
     is_active: bool
@@ -34,3 +35,16 @@ class TenantMeResponse(BaseModel):
 class TenantChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(..., min_length=12)
+
+
+class TenantForgotPasswordRequest(BaseModel):
+    email: str = Field(..., min_length=3, max_length=255)
+
+
+class TenantForgotPasswordResponse(BaseModel):
+    message: str
+
+
+class TenantResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=16, max_length=500)
+    new_password: str = Field(..., min_length=12, max_length=500)

@@ -9,6 +9,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -138,3 +139,54 @@ class ConnectorEvent(Entity):
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     actor_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("tenant_users.id", ondelete="SET NULL"), nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class OperationalToolRequest(Entity):
+    """Short-lived, tenant-scoped RPC request claimed by one connector."""
+
+    __tablename__ = "operational_tool_requests"
+    __table_args__ = (
+        Index(
+            "ix_operational_tool_requests_connector_status_expiry",
+            "connector_id",
+            "status",
+            "expires_at",
+        ),
+        Index(
+            "ix_operational_tool_requests_tenant_created",
+            "tenant_id",
+            "created_at",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    connector_id: Mapped[UUID] = mapped_column(
+        ForeignKey("managed_connectors.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_by_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenant_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    arguments: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending", index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    claim_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)

@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import UploadFile
 
@@ -46,6 +46,14 @@ from app.services.connector_service import (
     ConnectorRegistrationError,
     ConnectorService,
     ConnectorServiceError,
+)
+from app.schemas.operational_tools import (
+    OperationalToolRequestView,
+    OperationalToolResultSubmission,
+)
+from app.services.operational_tool_service import (
+    OperationalToolConflict,
+    OperationalToolService,
 )
 
 
@@ -270,7 +278,7 @@ async def accept_connector_document(
     connector_service: ConnectorService = Depends(get_connector_service),
     db: Session = Depends(get_db),
 ):
-    logger.info("Connector document upload received", extra={"connector_id": str(connector_id)})
+    logger.info("document_received", extra={"connector_id": str(connector_id)})
     try:
         connector = connector_service.authenticate(
             connector_id, x_peka_connector_id, _bearer_secret(authorization),
@@ -375,3 +383,51 @@ def connector_document_status(
         if len(response) >= limit:
             break
     return response
+
+
+@router.get(
+    "/{connector_id}/operational-tools/requests/next",
+    response_model=OperationalToolRequestView,
+    responses={204: {"description": "No pending request"}},
+)
+def claim_operational_tool_request(
+    connector_id: UUID,
+    authorization: str | None = Header(default=None),
+    x_peka_connector_id: str | None = Header(
+        default=None, alias="X-PEKA-Connector-ID"
+    ),
+    connector_service: ConnectorService = Depends(get_connector_service),
+    db: Session = Depends(get_db),
+):
+    connector = _authenticate_connector(
+        connector_id, authorization, x_peka_connector_id, connector_service
+    )
+    request = OperationalToolService(db).claim(connector)
+    return request if request is not None else Response(status_code=204)
+
+
+@router.post(
+    "/{connector_id}/operational-tools/requests/{request_id}/result",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+def submit_operational_tool_result(
+    connector_id: UUID,
+    request_id: UUID,
+    payload: OperationalToolResultSubmission,
+    authorization: str | None = Header(default=None),
+    x_peka_connector_id: str | None = Header(
+        default=None, alias="X-PEKA-Connector-ID"
+    ),
+    connector_service: ConnectorService = Depends(get_connector_service),
+    db: Session = Depends(get_db),
+) -> Response:
+    connector = _authenticate_connector(
+        connector_id, authorization, x_peka_connector_id, connector_service
+    )
+    try:
+        OperationalToolService(db).submit(connector, request_id, payload)
+    except OperationalToolConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return Response(status_code=204)

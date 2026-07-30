@@ -7,7 +7,7 @@ from app.core.url_builder import build_tenant_auth_callback_url
 from app.models.tenant_sso_config import SSOProvider, TenantSSOConfig
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_sso_repository import TenantSSORepository
-from app.schemas.tenant_sso import TenantSSOConfigUpdate
+from app.schemas.tenant_sso import TenantSSOConfigUpdate, TenantSSOTestResponse
 from app.services.oidc_discovery_service import (
     OIDCDiscoveryService,
     entra_issuer_url,
@@ -139,20 +139,19 @@ class TenantSSOService:
             assert payload.issuer_url is not None
             issuer_url = normalize_issuer_url(payload.issuer_url)
 
-        discovery = self.discovery_service.discover(issuer_url)
         redirect_uri = build_tenant_auth_callback_url(
             slug=tenant.slug,
             hostname=tenant.subdomain,
             tenant_url=tenant.tenant_url,
         )
-        assert existing is None or existing.client_secret_encrypted is not None
         if payload.client_secret:
             encrypted_secret = self.secret_cipher.encrypt(payload.client_secret)
-        elif self.secret_cipher.is_encrypted(existing.client_secret_encrypted):
-            encrypted_secret = existing.client_secret_encrypted
         else:
-            encrypted_secret = self.secret_cipher.encrypt(
+            assert existing is not None and existing.client_secret_encrypted
+            encrypted_secret = (
                 existing.client_secret_encrypted
+                if self.secret_cipher.is_encrypted(existing.client_secret_encrypted)
+                else self.secret_cipher.encrypt(existing.client_secret_encrypted)
             )
 
         try:
@@ -162,12 +161,14 @@ class TenantSSOService:
                 result = existing
             result.provider = payload.provider
             result.entra_tenant_id = entra_tenant_id
-            result.issuer_url = normalize_issuer_url(discovery.issuer)
+            result.issuer_url = issuer_url
             result.client_id = payload.client_id
             result.client_secret_encrypted = encrypted_secret
-            result.authorization_endpoint = discovery.authorization_endpoint
-            result.token_endpoint = discovery.token_endpoint
-            result.jwks_uri = discovery.jwks_uri
+            # Endpoints are runtime-derived provider data. Clear any old cache;
+            # saving tenant-owned credentials must not depend on IdP reachability.
+            result.authorization_endpoint = None
+            result.token_endpoint = None
+            result.jwks_uri = None
             result.redirect_uri = redirect_uri
             result.scopes = "openid profile email"
             result.enabled = payload.enabled
@@ -194,3 +195,41 @@ class TenantSSOService:
                 },
             )
             raise
+
+    def test_configuration(self, tenant_id: UUID) -> TenantSSOTestResponse:
+        config = self.get(tenant_id)
+        if config is None:
+            raise OIDCConfigurationError("Save the SSO configuration before testing it.")
+        required = {
+            "issuer URL": config.issuer_url,
+            "client ID": config.client_id,
+            "client secret": config.client_secret_encrypted,
+            "redirect URI": config.redirect_uri,
+        }
+        missing = next((label for label, value in required.items() if not value), None)
+        if missing:
+            raise OIDCConfigurationError(f"OIDC {missing} is missing.")
+
+        discovery = self.discovery_service.discover(config.issuer_url)
+        config.issuer_url = normalize_issuer_url(discovery.issuer)
+        config.authorization_endpoint = discovery.authorization_endpoint
+        config.token_endpoint = discovery.token_endpoint
+        config.jwks_uri = discovery.jwks_uri
+        try:
+            self.repository.commit()
+            self.repository.refresh(config)
+        except Exception:
+            self.repository.rollback()
+            raise
+        logger.info(
+            "Tenant SSO discovery test succeeded",
+            extra={"tenant_id": str(tenant_id), "provider": config.provider.value},
+        )
+        return TenantSSOTestResponse(
+            success=True,
+            issuer_url=config.issuer_url,
+            authorization_endpoint=config.authorization_endpoint,
+            token_endpoint=config.token_endpoint,
+            jwks_uri=config.jwks_uri,
+            message="OIDC discovery succeeded. The configuration is ready for login testing.",
+        )

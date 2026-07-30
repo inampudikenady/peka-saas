@@ -25,11 +25,11 @@ services:
       TENANT_URL_MODE: path
       PEKA_OBJECT_STORAGE_LOCAL_ROOT: /var/lib/peka/documents
       PEKA_QDRANT_URL: http://qdrant:6333
-      PEKA_EMBEDDING_PROVIDER: ${PEKA_EMBEDDING_PROVIDER:-disabled}
-      PEKA_EMBEDDING_BASE_URL: ${PEKA_EMBEDDING_BASE_URL:-}
+      PEKA_EMBEDDING_PROVIDER: ${PEKA_EMBEDDING_PROVIDER:-openai-compatible}
+      PEKA_EMBEDDING_BASE_URL: ${PEKA_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
       PEKA_EMBEDDING_API_KEY: ${PEKA_EMBEDDING_API_KEY:-}
-      PEKA_EMBEDDING_MODEL: ${PEKA_EMBEDDING_MODEL:-text-embedding-3-small}
-      PEKA_EMBEDDING_DIMENSION: ${PEKA_EMBEDDING_DIMENSION:-1536}
+      PEKA_EMBEDDING_MODEL: ${PEKA_EMBEDDING_MODEL:-nomic-embed-text}
+      PEKA_EMBEDDING_DIMENSION: ${PEKA_EMBEDDING_DIMENSION:-768}
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,11 +46,11 @@ services:
       ENVIRONMENT: local
       PEKA_OBJECT_STORAGE_LOCAL_ROOT: /var/lib/peka/documents
       PEKA_QDRANT_URL: http://qdrant:6333
-      PEKA_EMBEDDING_PROVIDER: ${PEKA_EMBEDDING_PROVIDER:-disabled}
-      PEKA_EMBEDDING_BASE_URL: ${PEKA_EMBEDDING_BASE_URL:-}
+      PEKA_EMBEDDING_PROVIDER: ${PEKA_EMBEDDING_PROVIDER:-openai-compatible}
+      PEKA_EMBEDDING_BASE_URL: ${PEKA_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
       PEKA_EMBEDDING_API_KEY: ${PEKA_EMBEDDING_API_KEY:-}
-      PEKA_EMBEDDING_MODEL: ${PEKA_EMBEDDING_MODEL:-text-embedding-3-small}
-      PEKA_EMBEDDING_DIMENSION: ${PEKA_EMBEDDING_DIMENSION:-1536}
+      PEKA_EMBEDDING_MODEL: ${PEKA_EMBEDDING_MODEL:-nomic-embed-text}
+      PEKA_EMBEDDING_DIMENSION: ${PEKA_EMBEDDING_DIMENSION:-768}
     depends_on:
       postgres:
         condition: service_healthy

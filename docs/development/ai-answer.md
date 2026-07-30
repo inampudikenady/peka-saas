@@ -28,20 +28,14 @@ Start the existing local development stack in separate terminals:
    uvicorn app.main:app --reload
    ```
 
-5. Ingestion worker:
-
-   ```bash
-   cd backend
-   source .venv/bin/activate
-   python -m app.scripts.run_ingestion_worker
-   ```
-
-6. Frontend:
+5. Frontend:
 
    ```bash
    cd frontend
    npm run dev
    ```
+
+FastAPI starts the ingestion runtime in-process; no worker terminal is required.
 
 The connector continues to run from its own repository and is not modified by
 the AI Answer Service.
@@ -154,3 +148,24 @@ git diff --check
 - Prompts, questions, retrieved text, generated answers, and credentials are not
   written to application logs.
 - The service is stateless; refreshing the page discards the current answer.
+## Operational Assistant routing
+
+Obvious inventory and resource questions use deterministic routing before
+document retrieval. SaaS creates a short-lived, tenant-scoped operational tool
+request. A registered connector polls the existing outbound connector API,
+claims one request, executes one of the allow-listed structured operations, and
+posts a structured result. SaaS does not store an inventory projection and
+does not call connectors directly.
+
+The initial allow list is:
+
+- `get_inventory_summary`
+- `count_assets`
+- `search_assets`
+- `get_asset_details`
+- `get_asset_status`
+- `get_asset_utilization`
+
+Claims and requests expire. Connector results are accepted only from the
+connector assigned to the request. Resource utilization uses fixed,
+parameterized node-exporter queries; callers cannot supply PromQL.

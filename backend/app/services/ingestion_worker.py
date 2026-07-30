@@ -59,6 +59,16 @@ class IngestionWorker:
         if job is None:
             self.repository.worker_heartbeat(self.worker_id, "IDLE")
             return False
+        logger.info(
+            "job_claimed",
+            extra={
+                "job_id": str(job.id),
+                "tenant_id": str(job.tenant_id),
+                "document_id": str(job.document_id),
+                "stage": job.job_type.value,
+                "worker_id": self.worker_id,
+            },
+        )
         self.repository.worker_heartbeat(self.worker_id, "BUSY", job.id)
         started = time.monotonic()
         try:
@@ -143,9 +153,9 @@ class IngestionWorker:
         self.statuses.transition(version, IngestionStatus.PARSING)
         version.parsing_started_at = datetime.now(timezone.utc)
         self.repository.commit()
-        logger.info("Parser started", extra={"job_id": str(job.id), "version_id": str(version.id)})
+        logger.info("parser_started", extra={"job_id": str(job.id), "version_id": str(version.id)})
         with self.storage.open(version.object_key) as stream:
-            parsed = parser_for(document.filename).parse(stream)
+            parsed = parser_for(document.filename, document.mime_type).parse(stream)
         if not parsed.sections or not any(section.text.strip() for section in parsed.sections):
             raise ValueError("Parser produced no usable text")
         self.repository.session.execute(
@@ -156,10 +166,19 @@ class IngestionWorker:
                 tenant_id=job.tenant_id, document_id=document.id, version_id=version.id,
                 section_index=index, text=section.text, page_number=section.page_number,
                 sheet_name=section.sheet_name, row_start=section.row_start, row_end=section.row_end,
-                section_title=section.section_title, section_metadata=section.metadata,
+                section_title=section.section_title,
+                section_metadata={
+                    **section.metadata,
+                    "detected_format": parsed.detected_format,
+                    "source_format": parsed.source_format,
+                },
             ))
         self.statuses.transition(version, IngestionStatus.PARSED)
         version.parser_name = parsed.parser_name; version.parser_version = parsed.parser_version
+        version.detected_format = parsed.detected_format
+        version.source_format = parsed.source_format
+        version.format_detection_confidence = parsed.detection_confidence
+        version.format_detection_reason = parsed.detection_reason
         version.parsed_at = datetime.now(timezone.utc)
         self._succeed(job)
         self.repository.enqueue_job(
@@ -167,6 +186,7 @@ class IngestionWorker:
             job.correlation_id,
         )
         self.repository.commit()
+        logger.info("parser_completed", extra={"job_id": str(job.id), "version_id": str(version.id)})
 
     def _chunk(self, job: IngestionJob) -> None:
         version, document = self._records(job)
@@ -184,7 +204,7 @@ class IngestionWorker:
         self.statuses.transition(version, IngestionStatus.CHUNKING)
         version.chunking_started_at = datetime.now(timezone.utc)
         self.repository.commit()
-        logger.info("Chunker started", extra={"job_id": str(job.id), "version_id": str(version.id)})
+        logger.info("chunking_started", extra={"job_id": str(job.id), "version_id": str(version.id)})
         chunks = chunk_document(parsed)
         if not chunks:
             raise ValueError("Chunker produced no usable chunks")
@@ -203,7 +223,7 @@ class IngestionWorker:
                 qdrant_point_id=uuid5(NAMESPACE_URL, f"peka:{version.id}:{chunk.index}"),
             ))
         self.statuses.transition(version, IngestionStatus.CHUNKED)
-        version.chunker_name = "structure-aware-word-window"; version.chunker_version = "2"
+        version.chunker_name = "markdown-block-aware"; version.chunker_version = "3"
         version.chunked_at = datetime.now(timezone.utc)
         self._succeed(job)
         self.repository.enqueue_job(
@@ -211,6 +231,7 @@ class IngestionWorker:
             job.correlation_id,
         )
         self.repository.commit()
+        logger.info("chunking_completed", extra={"job_id": str(job.id), "version_id": str(version.id), "chunk_count": len(chunks)})
 
     def _embed_and_index(self, job: IngestionJob) -> None:
         version, document = self._records(job)
@@ -230,13 +251,16 @@ class IngestionWorker:
         self.statuses.transition(version, IngestionStatus.EMBEDDING)
         version.embedding_started_at = datetime.now(timezone.utc)
         self.repository.commit()
-        logger.info("Embedding started", extra={"job_id": str(job.id), "version_id": str(version.id)})
+        logger.info("embedding_started", extra={"job_id": str(job.id), "version_id": str(version.id)})
         vectors = self.embeddings.embed([chunk.text for chunk in chunks])
         if len(vectors) != len(chunks):
             raise ValueError("Embedding provider returned an incomplete batch")
+        version.embedding_completed_at = datetime.now(timezone.utc)
+        logger.info("embedding_completed", extra={"job_id": str(job.id), "version_id": str(version.id), "chunk_count": len(chunks)})
         self.statuses.transition(version, IngestionStatus.INDEXING)
+        version.indexing_started_at = datetime.now(timezone.utc)
         self.repository.commit()
-        logger.info("Qdrant upsert started", extra={"job_id": str(job.id), "version_id": str(version.id)})
+        logger.info("qdrant_upsert_started", extra={"job_id": str(job.id), "version_id": str(version.id)})
         points = [VectorPoint(
             chunk.qdrant_point_id, vector,
             {"tenant_id": str(job.tenant_id), "connector_id": str(document.connector_id),
@@ -261,23 +285,49 @@ class IngestionWorker:
         version.embedding_provider = self.embeddings.name; version.embedding_model = self.embeddings.model
         version.embedding_dimension = self.embeddings.dimension
         version.indexed_at = datetime.now(timezone.utc)
+        version.indexing_completed_at = version.indexed_at
         version.error_code = None; version.safe_error_message = None; version.failed_at = None
         self._succeed(job); self.repository.commit()
-        logger.info("Qdrant upsert completed", extra={"job_id": str(job.id), "version_id": str(version.id)})
+        logger.info("qdrant_upsert_completed", extra={"job_id": str(job.id), "version_id": str(version.id), "point_count": len(points)})
 
     def _reindex(self, job: IngestionJob) -> None:
         version, document = self._records(job)
-        stage = (
-            IngestionJobType.EMBED_AND_INDEX
-            if self.repository.list_chunks(job.tenant_id, version.id)
-            else IngestionJobType.PARSE_DOCUMENT
+        # Reindex must rebuild from the immutable stored object. Reusing existing
+        # chunks would leave documents on an older parser/chunker forever and,
+        # in particular, would prevent content-aware format detection from being
+        # applied to historical .txt documents.
+        self.vectors.delete_document(job.tenant_id, document.id)
+        self.repository.session.execute(
+            delete(DocumentChunk).where(DocumentChunk.version_id == version.id)
         )
-        if stage == IngestionJobType.EMBED_AND_INDEX:
-            version.ingestion_status = IngestionStatus.CHUNKED
-        else:
-            version.ingestion_status = IngestionStatus.RECEIVED
+        self.repository.session.execute(
+            delete(DocumentParsedSection).where(
+                DocumentParsedSection.version_id == version.id
+            )
+        )
+        version.ingestion_status = IngestionStatus.RECEIVED
+        version.parser_name = None
+        version.parser_version = None
+        version.detected_format = None
+        version.source_format = None
+        version.format_detection_confidence = None
+        version.format_detection_reason = None
+        version.chunker_name = None
+        version.chunker_version = None
+        version.embedding_provider = None
+        version.embedding_model = None
+        version.embedding_dimension = None
+        version.error_code = None
+        version.safe_error_message = None
+        version.failed_at = None
         self._succeed(job)
-        self.repository.enqueue_job(job.tenant_id, document.id, version.id, stage, job.correlation_id)
+        self.repository.enqueue_job(
+            job.tenant_id,
+            document.id,
+            version.id,
+            IngestionJobType.PARSE_DOCUMENT,
+            job.correlation_id,
+        )
         self.repository.commit()
 
     def _delete(self, job: IngestionJob) -> None:

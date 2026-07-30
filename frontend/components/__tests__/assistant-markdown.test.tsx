@@ -3,7 +3,10 @@ import { act } from "react";
 import { hydrateRoot } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
-import { AssistantMarkdown } from "@/components/assistant-markdown";
+import {
+  AssistantMarkdown,
+  codeTextFromReactNode,
+} from "@/components/assistant-markdown";
 
 const citation = {
   citation_id: "C1",
@@ -76,6 +79,41 @@ it("renders structured Markdown and copies fenced code", async () => {
     expect(writeText).toHaveBeenCalledWith("peka verify --host host-1"),
   );
   expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+});
+
+it.each([
+  ["bash", "useradd -g dba \\\n  -d /home/kohlerdba \\\n  -m kohlerdba"],
+  ["shell", "printf '%s\\n' first\nprintf '%s\\n' second"],
+  ["text", "literal <code> text\n  with indentation"],
+  ["json", '{\n  "enabled": true\n}'],
+  ["yaml", "service:\n  enabled: true"],
+  ["made-up-language", "unknown --language\n  stays plain"],
+])("renders and copies an exact %s fenced block", async (language, code) => {
+  const view = render(
+    <AssistantMarkdown
+      content={`\`\`\`${language}\n${code}\n\`\`\``}
+      citations={[]}
+      onCitation={vi.fn()}
+    />,
+  );
+
+  expect(view.container.querySelector("pre code")?.textContent).toBe(code);
+  expect(view.container).not.toHaveTextContent("[object Object]");
+  fireEvent.click(screen.getByRole("button", { name: "Copy code" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith(code));
+});
+
+it("extracts exact code from nested React children without serializing objects", () => {
+  const nested = (
+    <>
+      <span>first line{"\n"}</span>
+      <span><strong>{"  indented"}</strong></span>
+      {{"internal": "not renderable"} as unknown as React.ReactNode}
+    </>
+  );
+
+  expect(codeTextFromReactNode(nested)).toBe("first line\n  indented");
+  expect(codeTextFromReactNode(nested)).not.toContain("[object Object]");
 });
 
 it("keeps citations interactive in bullets and after inline code", () => {

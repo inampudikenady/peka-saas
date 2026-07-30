@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import JSON, Boolean, DateTime, Enum, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import JSON, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Entity
@@ -63,12 +63,26 @@ class IngestionJobState(str, enum.Enum):
 class Document(Entity):
     __tablename__ = "documents"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "connector_id", "source_id", "document_key", name="uq_documents_logical_identity"),
+        UniqueConstraint("tenant_id", "document_key", name="uq_documents_tenant_document_key"),
         Index("ix_documents_tenant_status", "tenant_id", "lifecycle_status"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connector_id: Mapped[UUID] = mapped_column(ForeignKey("managed_connectors.id", ondelete="CASCADE"), index=True)
+    # connector_id is retained as the compatibility name for the most recent
+    # producer. It is provenance, not ownership, and may be cleared when that
+    # producer record is explicitly removed.
+    connector_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("managed_connectors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    created_by_connector_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("managed_connectors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    last_seen_by_connector_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("managed_connectors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    last_synchronized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
     source_id: Mapped[str] = mapped_column(String(255))
     document_key: Mapped[str] = mapped_column(String(512))
     current_version_id: Mapped[UUID | None] = mapped_column(nullable=True, index=True)
@@ -91,7 +105,9 @@ class DocumentVersion(Entity):
 
     document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connector_id: Mapped[UUID] = mapped_column(ForeignKey("managed_connectors.id", ondelete="CASCADE"), index=True)
+    connector_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("managed_connectors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     content_hash: Mapped[str] = mapped_column(String(71))
     size_bytes: Mapped[int] = mapped_column(Integer)
     modified_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -100,6 +116,10 @@ class DocumentVersion(Entity):
     ingestion_status: Mapped[IngestionStatus] = mapped_column(Enum(IngestionStatus, name="document_ingestion_status"), index=True)
     parser_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     parser_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    detected_format: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    source_format: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    format_detection_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    format_detection_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
     chunker_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     chunker_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     embedding_provider: Mapped[str | None] = mapped_column(String(100), nullable=True)
@@ -108,11 +128,16 @@ class DocumentVersion(Entity):
     error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
     safe_error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    stored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     parsing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     parsed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     chunking_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     chunked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     embedding_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    embedding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    indexing_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    indexing_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     indexed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -170,7 +195,9 @@ class DocumentChunk(Entity):
     __table_args__ = (UniqueConstraint("version_id", "chunk_index", name="uq_document_chunks_version_index"),)
 
     tenant_id: Mapped[UUID] = mapped_column(ForeignKey("tenants.id", ondelete="CASCADE"), index=True)
-    connector_id: Mapped[UUID] = mapped_column(ForeignKey("managed_connectors.id", ondelete="CASCADE"), index=True)
+    connector_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("managed_connectors.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     source_id: Mapped[str] = mapped_column(String(255), index=True)
     document_id: Mapped[UUID] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     version_id: Mapped[UUID] = mapped_column(ForeignKey("document_versions.id", ondelete="CASCADE"), index=True)

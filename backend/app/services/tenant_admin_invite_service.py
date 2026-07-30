@@ -7,6 +7,8 @@ from app.models.tenant_admin_invite import TenantAdminInvite
 from app.repositories.tenant_admin_invite_repository import TenantAdminInviteRepository
 from app.core.url_builder import build_tenant_admin_setup_url
 from app.schemas.tenant import TenantAdminInviteResponse
+from app.models.tenant_audit_event import TenantAuditEvent
+from app.core.logging import request_id_ctx
 
 
 class TenantAdminInviteService:
@@ -69,6 +71,53 @@ class TenantAdminInviteService:
             self.repository.rollback()
             raise
 
+        setup_link = build_tenant_admin_setup_url(
+            slug=tenant.slug,
+            token=raw_token,
+            hostname=tenant.subdomain,
+        )
+        return self._response(invite, setup_link=setup_link)
+
+    def update_recipient(
+        self,
+        tenant: Tenant,
+        email: str,
+        full_name: str,
+        actor,
+    ) -> TenantAdminInviteResponse:
+        previous = self.repository.get_latest_for_tenant(tenant.id)
+        if previous is None:
+            raise ValueError("No initial administrator invitation exists.")
+        if previous.used_at is not None:
+            raise ValueError(
+                "The initial invitation has already been used; manage administrators instead."
+            )
+        previous.expires_at = datetime.now(UTC)
+        try:
+            invite, raw_token = self.create_invite(
+                tenant=tenant,
+                email=email.strip().lower(),
+                full_name=full_name.strip(),
+                created_by_platform_admin_id=actor.id,
+            )
+            self.repository.db.add(TenantAuditEvent(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                tenant_display_name=tenant.display_name,
+                actor_platform_admin_id=actor.id,
+                actor_username=actor.username,
+                action="INITIAL_ADMIN_RECIPIENT_UPDATED",
+                changes={
+                    "email": {"old": previous.email, "new": invite.email},
+                    "full_name": {"old": previous.full_name, "new": invite.full_name},
+                },
+                request_id=request_id_ctx.get(),
+            ))
+            self.repository.commit()
+            self.repository.refresh(invite)
+        except Exception:
+            self.repository.rollback()
+            raise
         setup_link = build_tenant_admin_setup_url(
             slug=tenant.slug,
             token=raw_token,

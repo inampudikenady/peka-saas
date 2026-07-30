@@ -33,6 +33,10 @@ Raw registration tokens and connector secrets are never stored. See [Connector A
 
 Authenticated connectors upload supported documents through `POST /api/v1/connectors/{connector_id}/documents`. The API verifies the complete byte stream and SHA-256 before atomically storing the object and committing document/version/job metadata. A separate staged worker parses, chunks, embeds, and indexes accepted versions in Qdrant. Tenant administrators inspect operational document state under Administration → Documents; authenticated tenant users search through the Knowledge Service.
 
+Documents and indexed knowledge are tenant-owned. Connector IDs are retained only
+as producer/synchronization provenance, so connector retirement or replacement
+does not duplicate or delete unchanged tenant knowledge.
+
 PostgreSQL and object storage are the system of record. Qdrant is a rebuildable, tenant-filtered derived index. See the exact [Document API contract](docs/api/documents.md) and [document pipeline architecture](docs/architecture/0009-document-ingestion-and-retrieval.md).
 
 ## Local verification

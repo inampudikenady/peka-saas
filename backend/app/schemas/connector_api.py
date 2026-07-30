@@ -21,7 +21,7 @@ from pydantic import (
 )
 
 
-ConnectorCapabilityName = Literal["filesystem_documents"]
+ConnectorCapabilityName = Literal["filesystem_documents", "operational_tools"]
 ConnectorName = Annotated[str, Field(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f]+$")]
 ConnectorVersion = Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")]
 ConnectorEnvironment = Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")]
@@ -87,6 +87,8 @@ class ConnectorRegistrationResponse(ConnectorAPIModel):
     connector_secret: str
     heartbeat_interval_seconds: int
     registered_at: datetime
+    configuration_version: Literal["1"] = "1"
+    tenant_timezone: str
 
 
 class ConnectorSourceSummary(BaseModel):
@@ -133,6 +135,8 @@ class ConnectorHeartbeatResponse(ConnectorAPIModel):
     accepted: Literal[True] = True
     server_time: datetime
     next_heartbeat_seconds: int
+    configuration_version: Literal["1"] = "1"
+    tenant_timezone: str
 
 
 class RegistrationTokenCreate(BaseModel):
@@ -162,6 +166,7 @@ class ConnectorSummaryResponse(ConnectorAPIModel):
     tenant_id: UUID
     tenant_name: str | None = None
     tenant_slug: str | None = None
+    tenant_timezone: str | None = None
     name: str
     instance_id: UUID
     version: str

@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     platform_frontend_base_url: str = "https://kenady-macbook-air.tailce91e3.ts.net"
     default_timezone: str = "UTC"
     support_contact: str | None = None
+    tenant_password_reset_minutes: int = Field(default=45, ge=30, le=60)
+    tenant_email_delivery_backend: str = "development_outbox"
 
     database_url: str = Field(
         default="postgresql+psycopg://peka:peka@localhost:5432/peka_platform"
@@ -71,7 +73,7 @@ class Settings(BaseSettings):
     peka_embedding_timeout_seconds: float = Field(default=30, ge=1)
     peka_ingestion_worker_enabled: bool = False
     peka_ingestion_worker_poll_seconds: float = Field(default=2.0, ge=0.1)
-    # The current worker is deliberately one process/one claimed job at a time.
+    # One lock-protected runtime claims one job at a time (in-process by default).
     peka_ingestion_worker_concurrency: int = Field(default=1, ge=1, le=1)
     peka_ingestion_worker_stale_job_seconds: int = Field(default=600, ge=30)
     peka_ingestion_worker_heartbeat_stale_seconds: int = Field(default=60, ge=10)

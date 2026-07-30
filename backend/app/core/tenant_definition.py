@@ -9,3 +9,4 @@ class TenantDefinition:
     hostname: str
     enabled: bool
     display_name: str | None = None
+    timezone: str = "UTC"

@@ -30,6 +30,7 @@ from app.repositories.connector_repository import ConnectorRepository
 from app.repositories.tenant_repository import TenantRepository
 from app.schemas.connector_api import ConnectorRegistrationRequest
 from app.services.connector_service import ConnectorService
+from app.services.operational_tool_service import OperationalToolService
 
 
 @pytest.fixture()
@@ -114,6 +115,57 @@ def registration_body(raw_token: str, *, instance_id: UUID | None = None) -> dic
         "instance_id": str(instance_id or uuid4()),
         "capabilities": ["filesystem_documents"],
     }
+
+
+def test_operational_tool_claim_requires_connector_auth_and_consumes_claim(proxy_app):
+    client, connector_service, tenant, _, admin = proxy_app
+    body = registration_body(create_token(connector_service, tenant, admin))
+    body["capabilities"].append("operational_tools")
+    registered = connector_service.register(
+        ConnectorRegistrationRequest.model_validate(body)
+    )
+    connector = connector_service.repository.get(tenant.id, registered.connector_id)
+    connector.last_seen_at = datetime.now(UTC)
+    connector.status = ManagedConnectorStatus.CONNECTED
+    connector_service.repository.commit()
+    request = OperationalToolService(connector_service.repository.db).create(
+        tenant.id,
+        admin.id,
+        "count_assets",
+        {"os_family": "linux"},
+    )
+    path = (
+        f"/api/v1/connectors/{registered.connector_id}"
+        "/operational-tools/requests/next"
+    )
+
+    unauthorized = client.get(
+        path,
+        headers={
+            "Authorization": "Bearer invalid",
+            "X-PEKA-Connector-ID": str(registered.connector_id),
+        },
+    )
+    assert unauthorized.status_code == 401
+
+    headers = {
+        "Authorization": f"Bearer {registered.connector_secret}",
+        "X-PEKA-Connector-ID": str(registered.connector_id),
+    }
+    claimed = client.get(path, headers=headers)
+    assert claimed.status_code == 200
+    assert claimed.json()["tool_name"] == "count_assets"
+    result_path = (
+        f"/api/v1/connectors/{registered.connector_id}"
+        f"/operational-tools/requests/{request.id}/result"
+    )
+    submission = {
+        "claim_token": claimed.json()["claim_token"],
+        "status": "completed",
+        "result": {"count": 14},
+    }
+    assert client.post(result_path, headers=headers, json=submission).status_code == 204
+    assert client.post(result_path, headers=headers, json=submission).status_code == 409
 
 
 def test_document_upload_succeeds_with_proxy_host_and_connector_identity(proxy_app, caplog):
@@ -280,7 +332,7 @@ def test_document_upload_reports_hash_size_mime_and_idempotency_conflicts(proxy_
     assert mime_mismatch.status_code == 422 and mime_mismatch.json()["code"] == "MIME_MISMATCH"
 
 
-def test_connector_cannot_delete_another_connectors_document(proxy_app):
+def test_replacement_connector_can_tombstone_same_tenant_logical_document(proxy_app):
     client, service, tenant, _, admin = proxy_app
     owner = _registered_document_connector(service, tenant, admin)
     other = _registered_document_connector(service, tenant, admin)
@@ -296,8 +348,8 @@ def test_connector_cannot_delete_another_connectors_document(proxy_app):
                  "Idempotency-Key": "other-delete-key"},
         json=tombstone,
     )
-    assert response.status_code == 404
-    assert response.json()["code"] == "DOCUMENT_NOT_FOUND"
+    assert response.status_code == 201
+    assert response.json()["ingestion_status"] == "DELETE_RECEIVED"
 
     connector_tombstone = {
         **metadata, "operation": "delete", "content_hash": None, "modified_at": None

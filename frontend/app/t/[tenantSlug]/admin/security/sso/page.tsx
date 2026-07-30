@@ -75,6 +75,7 @@ export default function SSOSettingsPage() {
   const [config, setConfig] = useState<TenantSSOConfig | null>(null);
   const [apiError, setApiError] = useState("");
   const [success, setSuccess] = useState("");
+  const [isTesting, setIsTesting] = useState(false);
   const [replaceSecret, setReplaceSecret] = useState(false);
   const {
     register,
@@ -142,7 +143,7 @@ export default function SSOSettingsPage() {
       setConfig(next);
       setReplaceSecret(false);
       reset({ ...values, client_secret: "" });
-      setSuccess("SSO configuration saved. The client secret remains hidden.");
+      setSuccess("SSO configuration saved locally. Use Test configuration to verify provider discovery.");
     } catch (caught) {
       const message = (
         caught instanceof Error ? caught.message : "Could not save SSO settings."
@@ -159,6 +160,20 @@ export default function SSOSettingsPage() {
       } else {
         setApiError(message);
       }
+    }
+  };
+
+  const testConfiguration = async () => {
+    setApiError("");
+    setSuccess("");
+    setIsTesting(true);
+    try {
+      const result = await tenantApi.testSSO(tenantSlug);
+      setSuccess(result.message);
+    } catch (caught) {
+      setApiError(caught instanceof Error ? caught.message : "Could not test SSO configuration.");
+    } finally {
+      setIsTesting(false);
     }
   };
 
@@ -304,9 +319,19 @@ export default function SSOSettingsPage() {
                 </span>
               </span>
             </label>
-            <Button disabled={isSubmitting}>
-              {isSubmitting ? "Validating discovery and saving…" : "Save SSO configuration"}
-            </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button disabled={isSubmitting || isTesting}>
+                {isSubmitting ? "Saving…" : "Save SSO configuration"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSubmitting || isTesting || !config?.client_secret_configured}
+                onClick={testConfiguration}
+              >
+                {isTesting ? "Testing discovery…" : "Test configuration"}
+              </Button>
+            </div>
           </form>
         </CardContent>
       </Card>

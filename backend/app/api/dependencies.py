@@ -34,6 +34,7 @@ from app.services.tenant_local_authentication_service import (
 from app.services.tenant_admin_invite_service import TenantAdminInviteService
 from app.services.tenant_platform_summary_service import TenantPlatformSummaryService
 from app.services.tenant_user_management_service import TenantUserManagementService
+from app.services.tenant_password_reset_service import TenantPasswordResetService
 from app.repositories.connector_repository import ConnectorRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.ai_conversation_repository import AIConversationRepository
@@ -129,6 +130,7 @@ def get_tenant_platform_summary_service(
     return TenantPlatformSummaryService(
         sso_repository=TenantSSORepository(db),
         user_repository=TenantUserRepository(db),
+        connector_repository=ConnectorRepository(db),
     )
 
 
@@ -136,6 +138,12 @@ def get_tenant_user_management_service(
     db: Session = Depends(get_db),
 ) -> TenantUserManagementService:
     return TenantUserManagementService(TenantUserRepository(db), TenantAdminInviteRepository(db), TenantRepository(db))
+
+
+def get_tenant_password_reset_service(
+    db: Session = Depends(get_db),
+) -> TenantPasswordResetService:
+    return TenantPasswordResetService(db)
 
 
 def get_connector_service(db: Session = Depends(get_db)) -> ConnectorService:

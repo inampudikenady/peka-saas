@@ -14,6 +14,7 @@ from app.schemas.ai_answer import (
     AIAnswerResponse,
     AIRetrievalSummary,
 )
+from app.services.assistant_operational import OperationalAnswer
 
 MARKDOWN_ANSWER = "## Installation\n\n1. Run `peka install`. [C1]"
 
@@ -126,6 +127,50 @@ def test_streaming_answer_event_sequence_has_no_reasoning_event():
     )
     assert len(conversations.completed) == 1
     assert conversations.completed[0][3]["content"] == MARKDOWN_ANSWER
+
+
+def test_streaming_inventory_question_uses_operational_tool_not_document_search(
+    monkeypatch,
+):
+    class FakeOperational:
+        def __init__(self, _db):
+            pass
+
+        async def answer(self, tenant_id, user_id, intent):
+            assert intent.tool_name == "count_assets"
+            assert intent.arguments == {"os_family": "linux"}
+            return OperationalAnswer(
+                "You have 14 Linux servers in the current inventory.",
+                "count_assets",
+                uuid4(),
+                {"count": 14},
+            )
+
+    class DocumentServiceMustNotRun(FakeService):
+        async def stream_answer(self, *args, **kwargs):
+            raise AssertionError("Document retrieval must not handle inventory counts")
+            yield
+
+    monkeypatch.setattr(
+        "app.api.routes.tenant.ai_answer.OperationalAssistantService",
+        FakeOperational,
+    )
+    conversations = FakeConversationService()
+    response = TestClient(
+        app(
+            service=DocumentServiceMustNotRun(),
+            conversation_service=conversations,
+        )
+    ).post(
+        "/api/v1/tenant/ai/answer/stream",
+        json={"query": "How many Linux servers do I have?"},
+    )
+
+    assert response.status_code == 200
+    assert "You have 14 Linux servers" in response.text
+    assert '"source":"connector"' in response.text
+    assert '"tool_name":"count_assets"' in response.text
+    assert conversations.completed[0][3]["prompt_version"] == "operational-tools-v1"
 
 
 def test_stream_sends_keepalive_during_delayed_generation(monkeypatch):

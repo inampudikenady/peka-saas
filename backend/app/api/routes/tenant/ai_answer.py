@@ -30,6 +30,10 @@ from app.schemas.ai_answer import (
 )
 from app.repositories.document_repository import DocumentRepository
 from app.services.ai_answer_service import AIAnswerError, AIAnswerService
+from app.services.assistant_operational import (
+    OperationalAssistantService,
+    classify_assistant_intent,
+)
 from app.services.knowledge_service import KnowledgeService
 from app.services.ai_conversation_service import (
     AIConversationService,
@@ -130,6 +134,7 @@ async def answer(
     conversation_service: AIConversationService = Depends(
         get_ai_conversation_service
     ),
+    db: Session = Depends(get_db),
 ) -> AIAnswerResponse | JSONResponse:
     request_id = request_id_ctx.get()
     try:
@@ -156,13 +161,31 @@ async def answer(
             detail="A response is already being generated for this conversation.",
         )
     try:
-        response = await service.answer(
-            tenant.tenant_id,
-            user.id,
-            payload,
-            request_id,
-            conversation_context=conversation_context.text if conversation_context else "",
-        )
+        intent = classify_assistant_intent(payload.query)
+        if intent.destination != "document":
+            operational = await OperationalAssistantService(db).answer(
+                tenant.tenant_id, user.id, intent
+            )
+            response = AIAnswerResponse(
+                answer=operational.text,
+                grounded=True,
+                citations=[],
+                retrieval={
+                    "result_count": 1 if operational.result is not None else 0,
+                    "included_count": 1 if operational.result is not None else 0,
+                    "top_k": 1,
+                },
+                model=None,
+                request_id=request_id,
+            )
+        else:
+            response = await service.answer(
+                tenant.tenant_id,
+                user.id,
+                payload,
+                request_id,
+                conversation_context=conversation_context.text if conversation_context else "",
+            )
         conversation_service.complete(
             tenant.tenant_id,
             user.id,
@@ -173,7 +196,11 @@ async def answer(
             ],
             retrieval=response.retrieval.model_dump(mode="json"),
             model=response.model.model if response.model else None,
-            prompt_version=PROMPT_VERSION if response.grounded else None,
+            prompt_version=(
+                "operational-tools-v1"
+                if intent.destination != "document"
+                else PROMPT_VERSION if response.grounded else None
+            ),
         )
         return response
     except AIAnswerError as exc:
@@ -209,6 +236,7 @@ async def stream_answer(
     conversation_service: AIConversationService = Depends(
         get_ai_conversation_service
     ),
+    db: Session = Depends(get_db),
 ) -> StreamingResponse:
     request_id = request_id_ctx.get()
     try:
@@ -235,13 +263,52 @@ async def stream_answer(
             detail="A response is already being generated for this conversation.",
         )
 
+    intent = classify_assistant_intent(payload.query)
+
+    async def operational_stream() -> AsyncGenerator[dict[str, Any], None]:
+        answer = await OperationalAssistantService(db).answer(
+            tenant.tenant_id, user.id, intent
+        )
+        included = 1 if answer.result is not None else 0
+        yield {
+            "event": "retrieval",
+            "data": {
+                "result_count": included,
+                "included_count": included,
+                "top_k": 1,
+                "source": "connector",
+                "tool_name": answer.tool_name,
+                "tool_request_id": (
+                    str(answer.tool_request_id) if answer.tool_request_id else None
+                ),
+            },
+        }
+        for start in range(0, len(answer.text), 96):
+            yield {"event": "token", "data": {"text": answer.text[start:start + 96]}}
+            await asyncio.sleep(0)
+        yield {"event": "citations", "data": {"citations": []}}
+        yield {
+            "event": "complete",
+            "data": {
+                "grounded": True,
+                "request_id": request_id,
+                "prompt_version": "operational-tools-v1",
+            },
+        }
+
     async def events() -> AsyncGenerator[str, None]:
-        stream = service.stream_answer(
-            tenant.tenant_id,
-            user.id,
-            payload,
-            request_id,
-            conversation_context=conversation_context.text if conversation_context else "",
+        stream = (
+            operational_stream()
+            if intent.destination != "document"
+            else service.stream_answer(
+                tenant.tenant_id,
+                user.id,
+                payload,
+                request_id,
+                conversation_context=(
+                    conversation_context.text if conversation_context else ""
+                ),
+            )
         )
         queue: asyncio.Queue[dict[str, Any] | BaseException | None] = asyncio.Queue()
         event_count = 0

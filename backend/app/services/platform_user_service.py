@@ -6,6 +6,7 @@ from uuid import UUID
 
 from app.core.config import settings
 from app.core.security import hash_password, verify_password
+from app.core.password_policy import PasswordPolicyError, validate_platform_password
 from app.models.platform_admin import PlatformAdmin, PlatformAdminRole
 from app.models.platform_admin_invite import PlatformAdminInvite, PlatformAdminInvitePurpose
 from app.repositories.platform_admin_invite_repository import PlatformAdminInviteRepository
@@ -82,12 +83,16 @@ class PlatformUserService:
             raise PlatformUserError("Password setup token has expired.")
         user = self.get(invite.user_id)
         try:
+            validate_platform_password(new_password)
             user.password_hash = hash_password(new_password)
             user.is_active = True
             user.locked = False
             user.failed_login_attempts = 0
             invite.used_at = datetime.now(UTC)
             self.users.commit()
+        except PasswordPolicyError as exc:
+            self.users.rollback()
+            raise PlatformUserError(str(exc)) from exc
         except Exception:
             self.users.rollback()
             raise
@@ -98,8 +103,16 @@ class PlatformUserService:
             raise PlatformUserError("Current password is incorrect.")
         if verify_password(new_password, user.password_hash):
             raise PlatformUserError("New password must be different from the current password.")
-        user.password_hash = hash_password(new_password)
-        self.users.commit()
+        try:
+            validate_platform_password(new_password)
+            user.password_hash = hash_password(new_password)
+            self.users.commit()
+        except PasswordPolicyError as exc:
+            self.users.rollback()
+            raise PlatformUserError(str(exc)) from exc
+        except Exception:
+            self.users.rollback()
+            raise
         logger.info("Platform user '%s' changed their password", user.username)
 
     def _new_invite(self, user_id: UUID, actor_id: UUID, purpose: PlatformAdminInvitePurpose):

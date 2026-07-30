@@ -1,8 +1,9 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.core.password_policy import validate_platform_password
 from app.models.platform_admin import PlatformAdminRole
 
 
@@ -50,9 +51,19 @@ class PlatformInvitationResponse(BaseModel):
 
 class PlatformPasswordResetRequest(BaseModel):
     token: str
-    new_password: str = Field(min_length=12)
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_meets_policy(cls, value: str) -> str:
+        return validate_platform_password(value)
 
 
 class PlatformChangePasswordRequest(BaseModel):
     current_password: str
-    new_password: str = Field(min_length=12)
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_meets_policy(cls, value: str) -> str:
+        return validate_platform_password(value)

@@ -30,13 +30,25 @@ class TenantLocalAuthenticationService:
             user is None
             or user.auth_source != TenantUserAuthSource.LOCAL
             or not user.is_active
+            or user.locked
             or not user.password_hash
             or not password_valid
         ):
+            if (
+                user is not None
+                and user.auth_source == TenantUserAuthSource.LOCAL
+                and user.is_active
+                and not user.locked
+            ):
+                user.failed_login_attempts += 1
+                if user.failed_login_attempts >= 5:
+                    user.locked = True
+                self.repository.commit()
             raise TenantAuthenticationError("Invalid username or password.")
 
         try:
             user.last_login_at = datetime.now(UTC)
+            user.failed_login_attempts = 0
             self.repository.commit()
             self.repository.refresh(user)
             return user

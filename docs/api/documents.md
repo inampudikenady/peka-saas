@@ -41,7 +41,17 @@ The service reads the entire stream with a configured byte limit, computes SHA-2
 
 Keys are durable in PostgreSQL and scoped to tenant plus connector. Exact replay returns the stored acknowledgement and creates no new version or job. Reusing a key with different metadata returns `409`. Records expire after the configured retention (24 hours by default); identical content for the same logical document also reuses its existing version.
 
-Logical identity is `(tenant_id, connector_id, source_id, document_key)`. Filename/path changes update display metadata but do not change identity. A content hash change creates a new immutable version.
+Logical identity is `(tenant_id, document_key)`. `document_key` is the source-native
+logical path/key and is independent of the connector appliance that delivered it.
+`source_id`, `created_by_connector_id`, `last_seen_by_connector_id`, and
+`last_synchronized_at` are synchronization provenance. A replacement connector
+re-observing the same hash reuses the existing version, chunks, and vectors. A
+content hash change creates a new immutable version.
+
+Retiring a connector disables its credentials but does not delete documents,
+versions, chunks, embeddings, or vectors. Tenant document responses expose source
+freshness as `current`, `stale`, or `historical`; permanent knowledge deletion is
+still an explicit tenant-administrator document action.
 
 ## Connector status feedback
 

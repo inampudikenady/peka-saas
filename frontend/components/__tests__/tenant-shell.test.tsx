@@ -35,6 +35,7 @@ const user: TenantMe = {
   tenant_id: "t",
   tenant_slug: "acme",
   tenant_name: "Acme",
+  tenant_timezone: "UTC",
   role: "tenant_user",
   username: null,
   is_active: true,

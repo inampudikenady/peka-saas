@@ -74,8 +74,11 @@ class KnowledgeService:
     def search(self, tenant_id: UUID, request: SearchRequest) -> SearchResponse:
         self._validate_filters(tenant_id, request)
         filters = {
-            "connector_id": str(request.filters.connector_id) if request.filters.connector_id else "",
-            "source_id": request.filters.source_id or "",
+            # Connector/source payload values are immutable indexing provenance
+            # and can predate a replacement connector. Apply those mutable
+            # filters against the tenant-owned document record below.
+            "connector_id": "",
+            "source_id": "",
             "document_id": str(request.filters.document_id) if request.filters.document_id else "",
             "lifecycle_status": "ACTIVE",
         }
@@ -100,6 +103,15 @@ class KnowledgeService:
                 document is None or version is None or chunk is None or document.is_deleted
                 or document.current_version_id != version.id
                 or version.ingestion_status != IngestionStatus.INDEXED
+                or (
+                    request.filters.connector_id is not None
+                    and document.last_seen_by_connector_id
+                    != request.filters.connector_id
+                )
+                or (
+                    request.filters.source_id is not None
+                    and document.source_id != request.filters.source_id
+                )
             ):
                 continue
             connector = self.repository.session.scalar(select(ManagedConnector).where(

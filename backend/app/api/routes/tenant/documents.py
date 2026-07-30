@@ -14,21 +14,25 @@ from app.api.tenant_context import get_current_tenant_context
 from app.core.tenant_context import TenantContext
 from app.db.session import get_db
 from app.models.document import (
-    DocumentAuditEvent, DocumentChunk, DocumentLifecycleStatus,
-    IngestionJobState, IngestionJobType, IngestionStatus,
+    Document, DocumentAuditEvent, DocumentChunk, DocumentLifecycleStatus,
+    DocumentVersion,
+    IngestionJob, IngestionJobState, IngestionJobType, IngestionStatus,
 )
 from app.models.connector import ManagedConnector
+from app.models.connector import ManagedConnectorStatus
 from app.core.config import settings
 from app.models.tenant_user import TenantUser
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document_api import (
     DocumentListItem, DocumentVersionView, DocumentView, PipelineValidationResponse,
-    SearchRequest, SearchResponse,
+    IngestionHealthView, SearchRequest, SearchResponse,
 )
 from app.services.embedding_provider import EmbeddingProviderNotConfigured
 from app.services.knowledge_service import KnowledgeFilterError, KnowledgeService
 from app.services.knowledge_pipeline_diagnostics import KnowledgePipelineDiagnostics
+from app.services.knowledge_runtime_health import embedding_health, qdrant_health
 from app.services.provider_factory import embedding_provider, object_storage, vector_store
+from app.services.ingestion_runtime import ingestion_runtime
 
 
 router = APIRouter(prefix="/tenant")
@@ -146,18 +150,49 @@ def _delete_eligibility(
             "Document lifecycle metadata is invalid; ownership-safe deletion is unavailable.",
             False,
         )
-    connector_tenant_id = repository.session.scalar(
-        select(ManagedConnector.tenant_id).where(
-            ManagedConnector.id == document.connector_id
-        )
-    )
-    if connector_tenant_id != document.tenant_id:
-        return (
-            False,
-            "Document connector ownership cannot be established safely.",
-            False,
-        )
     return True, None, False
+
+
+def _source_freshness(repository: DocumentRepository, document) -> str:
+    connector = (
+        repository.session.get(ManagedConnector, document.last_seen_by_connector_id)
+        if document.last_seen_by_connector_id
+        else None
+    )
+    if connector is None:
+        return "historical"
+    if connector.status == ManagedConnectorStatus.RETIRED:
+        return "stale"
+    if connector.status in {
+        ManagedConnectorStatus.OUT_OF_SYNC,
+        ManagedConnectorStatus.DISCONNECTED,
+        ManagedConnectorStatus.AUTHENTICATION_FAILED,
+    }:
+        return "stale"
+    return "current"
+
+
+def _source_connector(repository: DocumentRepository, document) -> tuple[str | None, str]:
+    connector = (
+        repository.session.get(ManagedConnector, document.last_seen_by_connector_id)
+        if document.last_seen_by_connector_id
+        else None
+    )
+    if connector is None:
+        return None, "historical"
+    return connector.name, connector.status.value
+
+
+def _tenant_vector_points_available(tenant_id: UUID) -> bool:
+    store = vector_store()
+    try:
+        return store.count_points(tenant_id) > 0
+    except Exception:
+        return False
+    finally:
+        client = getattr(store, "client", None)
+        if client is not None:
+            client.close()
 
 
 def _version_view(version) -> DocumentVersionView | None:
@@ -166,14 +201,31 @@ def _version_view(version) -> DocumentVersionView | None:
     return DocumentVersionView(
         id=version.id, content_hash=version.content_hash, size_bytes=version.size_bytes,
         ingestion_status=version.ingestion_status.value, storage_status=version.storage_status.value,
-        parser_name=version.parser_name, chunker_name=version.chunker_name,
+        parser_name=version.parser_name,
+        detected_format=version.detected_format,
+        source_format=version.source_format,
+        format_detection_confidence=version.format_detection_confidence,
+        format_detection_reason=version.format_detection_reason,
+        chunker_name=version.chunker_name,
         embedding_provider=version.embedding_provider, embedding_model=version.embedding_model,
-        received_at=version.received_at, indexed_at=version.indexed_at,
+        received_at=version.received_at, stored_at=version.stored_at,
+        queued_at=version.queued_at, parsing_started_at=version.parsing_started_at,
+        parsed_at=version.parsed_at, chunking_started_at=version.chunking_started_at,
+        chunked_at=version.chunked_at, embedding_started_at=version.embedding_started_at,
+        embedding_completed_at=version.embedding_completed_at,
+        indexing_started_at=version.indexing_started_at,
+        indexing_completed_at=version.indexing_completed_at,
+        indexed_at=version.indexed_at,
         error_code=version.error_code, error_message=version.safe_error_message,
     )
 
 
-def _document_view(repository: DocumentRepository, document) -> DocumentView:
+def _document_view(
+    repository: DocumentRepository,
+    document,
+    *,
+    vector_points_available: bool | None = None,
+) -> DocumentView:
     version = repository.get_version(document.tenant_id, document.current_version_id) if document.current_version_id else None
     chunk_count = 0 if version is None else repository.session.scalar(
         select(func.count()).select_from(DocumentChunk).where(
@@ -184,15 +236,44 @@ def _document_view(repository: DocumentRepository, document) -> DocumentView:
     embedding_status, indexed, searchable = _pipeline_state(
         version, chunk_count, document.is_deleted
     )
+    if indexed:
+        if vector_points_available is None:
+            vector_points_available = _tenant_vector_points_available(
+                document.tenant_id
+            )
+        if not vector_points_available:
+            searchable = False
     processing_status, blocking_reason = _processing_state(
         repository, version, document.is_deleted, document.id
     )
+    source_freshness = _source_freshness(repository, document)
+    source_connector_name, source_connector_status = _source_connector(
+        repository, document
+    )
+    if processing_status == "Indexed":
+        processing_status = f"Indexed / {source_freshness}"
+    if indexed and not vector_points_available:
+        processing_status = (
+            f"Indexed / {source_freshness} / vector index missing"
+        )
+        blocking_reason = (
+            "PostgreSQL contains indexed metadata, but the configured Qdrant "
+            "collection has no searchable points. Re-index this document."
+        )
     delete_eligible, delete_unavailable_reason, deletion_in_progress = (
         _delete_eligibility(repository, document)
     )
     return DocumentView(
-        id=document.id, connector_id=document.connector_id, source_id=document.source_id,
+        id=document.id, connector_id=document.connector_id,
+        created_by_connector_id=document.created_by_connector_id,
+        last_seen_by_connector_id=document.last_seen_by_connector_id,
+        last_synchronized_at=document.last_synchronized_at,
+        source_freshness=source_freshness,
+        source_connector_name=source_connector_name,
+        source_connector_status=source_connector_status,
+        source_id=document.source_id,
         document_key=document.document_key, filename=document.filename,
+        extension=document.extension,
         relative_path=document.relative_path, mime_type=document.mime_type,
         is_deleted=document.is_deleted, current_version=_version_view(version),
         versions=[view for item in versions if (view := _version_view(item)) is not None],
@@ -217,6 +298,7 @@ def list_documents(
 ):
     repository = DocumentRepository(db)
     response: list[DocumentListItem] = []
+    vector_points_available: bool | None = None
     for document in repository.list_documents(tenant.tenant_id, include_deleted):
         version = (
             repository.get_version(document.tenant_id, document.current_version_id)
@@ -231,16 +313,52 @@ def list_documents(
         embedding_status, indexed, searchable = _pipeline_state(
             version, chunk_count, document.is_deleted
         )
+        if indexed:
+            if vector_points_available is None:
+                vector_points_available = _tenant_vector_points_available(
+                    tenant.tenant_id
+                )
+            if not vector_points_available:
+                searchable = False
         processing_status, blocking_reason = _processing_state(
             repository, version, document.is_deleted, document.id
         )
+        source_freshness = _source_freshness(repository, document)
+        source_connector_name, source_connector_status = _source_connector(
+            repository, document
+        )
+        if processing_status == "Indexed":
+            processing_status = f"Indexed / {source_freshness}"
+        if indexed and not searchable:
+            processing_status = (
+                f"Indexed / {source_freshness} / vector index missing"
+            )
+            blocking_reason = (
+                "PostgreSQL contains indexed metadata, but the configured Qdrant "
+                "collection has no searchable points. Re-index this document."
+            )
         delete_eligible, delete_unavailable_reason, deletion_in_progress = (
             _delete_eligibility(repository, document)
         )
         response.append(DocumentListItem(
             id=document.id, connector_id=document.connector_id,
+            created_by_connector_id=document.created_by_connector_id,
+            last_seen_by_connector_id=document.last_seen_by_connector_id,
+            last_synchronized_at=document.last_synchronized_at,
+            source_freshness=source_freshness,
+            source_connector_name=source_connector_name,
+            source_connector_status=source_connector_status,
             source_id=document.source_id, filename=document.filename,
+            extension=document.extension,
             mime_type=document.mime_type,
+            detected_format=version.detected_format if version else None,
+            source_format=version.source_format if version else None,
+            format_detection_confidence=(
+                version.format_detection_confidence if version else None
+            ),
+            format_detection_reason=(
+                version.format_detection_reason if version else None
+            ),
             ingestion_status=(
                 "DELETED" if document.is_deleted
                 else version.ingestion_status.value if version else "RECEIVED"
@@ -256,6 +374,126 @@ def list_documents(
             is_deleted=document.is_deleted, updated_at=document.updated_at,
         ))
     return response
+
+
+@router.get("/documents/ingestion-health", response_model=IngestionHealthView)
+def ingestion_health(
+    tenant: TenantContext = Depends(get_current_tenant_context),
+    _user: TenantUser = Depends(require_tenant_admin),
+    db: Session = Depends(get_db),
+):
+    repository = DocumentRepository(db)
+    heartbeat = repository.latest_worker_heartbeat()
+    active_states = [
+        IngestionJobState.PENDING,
+        IngestionJobState.FAILED_RETRYABLE,
+        IngestionJobState.RETRY,
+    ]
+    processing_states = [IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]
+    failed_states = [IngestionJobState.FAILED, IngestionJobState.FAILED_PERMANENT]
+    count_for = lambda states: db.scalar(
+        select(func.count()).select_from(IngestionJob).where(
+            IngestionJob.tenant_id == tenant.tenant_id,
+            IngestionJob.state.in_(states),
+        )
+    ) or 0
+    latest_claimed = db.scalar(
+        select(IngestionJob).where(
+            IngestionJob.tenant_id == tenant.tenant_id,
+            IngestionJob.started_at.is_not(None),
+        ).order_by(IngestionJob.started_at.desc()).limit(1)
+    )
+    latest_success = db.scalar(
+        select(IngestionJob).where(
+            IngestionJob.tenant_id == tenant.tenant_id,
+            IngestionJob.state == IngestionJobState.SUCCEEDED,
+        ).order_by(IngestionJob.completed_at.desc()).limit(1)
+    )
+    latest_failed = db.scalar(
+        select(IngestionJob)
+        .join(Document, Document.id == IngestionJob.document_id)
+        .join(DocumentVersion, DocumentVersion.id == IngestionJob.version_id)
+        .where(
+            IngestionJob.tenant_id == tenant.tenant_id,
+            IngestionJob.state.in_(failed_states),
+            Document.current_version_id == IngestionJob.version_id,
+            Document.is_deleted.is_(False),
+            DocumentVersion.error_code.is_not(None),
+        )
+        .order_by(
+            IngestionJob.completed_at.desc(), IngestionJob.updated_at.desc()
+        )
+        .limit(1)
+    )
+    worker_status = _worker_state(repository)
+    embeddings = embedding_health(verify=False)
+    vectors = qdrant_health()
+    indexed_document_count = db.scalar(
+        select(func.count(func.distinct(Document.id)))
+        .select_from(Document)
+        .join(
+            DocumentVersion,
+            DocumentVersion.id == Document.current_version_id,
+        )
+        .join(
+            DocumentChunk,
+            DocumentChunk.version_id == DocumentVersion.id,
+        )
+        .where(
+            Document.tenant_id == tenant.tenant_id,
+            DocumentVersion.ingestion_status == IngestionStatus.INDEXED,
+        )
+    ) or 0
+    failed_document_count = db.scalar(
+        select(func.count(func.distinct(Document.id)))
+        .select_from(Document)
+        .join(
+            DocumentVersion,
+            DocumentVersion.id == Document.current_version_id,
+        )
+        .where(
+            Document.tenant_id == tenant.tenant_id,
+            Document.is_deleted.is_(False),
+            DocumentVersion.error_code.is_not(None),
+        )
+    ) or 0
+    remediation = None
+    if worker_status in {"Not running", "Stale", "Stopped"}:
+        remediation = "Restart the PEKA backend; the in-process ingestion runtime starts with FastAPI."
+    elif embeddings["status"] != "healthy":
+        remediation = str(embeddings.get("reason") or "Check embedding configuration.")
+    elif vectors["status"] != "healthy":
+        remediation = str(vectors.get("reason") or "Start the local Qdrant service.")
+    elif indexed_document_count > 0 and not _tenant_vector_points_available(
+        tenant.tenant_id
+    ):
+        remediation = (
+            "PostgreSQL has indexed document chunks but Qdrant has no points. "
+            "Re-index the affected documents."
+        )
+        vectors["status"] = "degraded"
+    return IngestionHealthView(
+        runtime_mode=(
+            "in_process"
+            if heartbeat is not None and heartbeat.worker_id.startswith("in-process:")
+            else "direct_python_process"
+            if heartbeat is not None
+            else "not_running"
+        ),
+        worker_status=worker_status,
+        last_heartbeat_at=heartbeat.last_seen_at if heartbeat else None,
+        runtime_started_at=heartbeat.created_at if heartbeat else None,
+        current_job_id=heartbeat.current_job_id if heartbeat else None,
+        queued_job_count=count_for(active_states),
+        processing_job_count=count_for(processing_states),
+        failed_job_count=failed_document_count,
+        latest_job_claimed_at=latest_claimed.started_at if latest_claimed else None,
+        latest_successful_job_at=latest_success.completed_at if latest_success else None,
+        latest_safe_error=latest_failed.safe_error_message if latest_failed else None,
+        embedding_status=str(embeddings["status"]),
+        qdrant_status=str(vectors["status"]),
+        remediation=remediation,
+    )
 
 
 @router.get("/documents/{document_id}", response_model=DocumentView)
@@ -305,6 +543,7 @@ def _enqueue_document_job(
         actor_user_id=actor.id, action=action,
     ))
     repository.commit()
+    ingestion_runtime.notify()
     logger.info(
         "Tenant document action requested",
         extra={"tenant_id": str(document.tenant_id), "document_id": str(document.id),
@@ -394,21 +633,6 @@ def delete_document(
             },
         )
         raise HTTPException(status_code=404, detail="Document not found.")
-    if connector_id is not None and connector_id != document.connector_id:
-        logger.warning(
-            "Tenant document deletion rejected",
-            extra={
-                "tenant_id": str(tenant.tenant_id),
-                "document_id": str(document.id),
-                "connector_id": str(document.connector_id),
-                "status": document.lifecycle_status.value,
-                "rejection_reason": "connector_ownership_mismatch",
-            },
-        )
-        raise HTTPException(
-            status_code=403,
-            detail="Document does not belong to the requested connector.",
-        )
     eligible, reason, in_progress = _delete_eligibility(repository, document)
     if not eligible:
         status_code = 409 if document.is_deleted or in_progress else 422

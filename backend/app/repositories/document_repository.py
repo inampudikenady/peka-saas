@@ -39,15 +39,20 @@ class DocumentRepository:
         self.session.rollback()
 
     def get_logical(
-        self, tenant_id: UUID, connector_id: UUID, source_id: str, document_key: str
+        self, tenant_id: UUID, source_id: str, document_key: str
     ) -> Document | None:
+        """Return tenant-owned logical data regardless of which connector observed it."""
         return self.session.scalar(
-            select(Document).where(
+            select(Document)
+            .where(
                 Document.tenant_id == tenant_id,
-                Document.connector_id == connector_id,
-                Document.source_id == source_id,
                 Document.document_key == document_key,
             )
+            .order_by(
+                (Document.source_id == source_id).desc(),
+                Document.created_at,
+            )
+            .with_for_update()
         )
 
     def get_document(self, tenant_id: UUID, document_id: UUID) -> Document | None:
@@ -203,6 +208,7 @@ class DocumentRepository:
             max_attempts=settings.peka_ingestion_job_max_attempts,
         )
         self.add(job)
+        # The transaction owner commits this row atomically with document state.
         return job
 
     def active_job_for_document_stage(
@@ -276,6 +282,25 @@ class DocumentRepository:
             job.error_code = "STALE_LOCK_RECOVERED"
             job.safe_error_message = "A stale worker lock was recovered."
         if jobs: self.session.commit()
+        return len(jobs)
+
+    def recover_orphaned_jobs_after_lock_handoff(self) -> int:
+        """Recover all running jobs once this process owns the exclusive lock."""
+        jobs = list(self.session.scalars(select(IngestionJob).where(
+            IngestionJob.state.in_(
+                [IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]
+            )
+        )).all())
+        now = datetime.now(timezone.utc)
+        for job in jobs:
+            job.state = IngestionJobState.FAILED_RETRYABLE
+            job.next_retry_at = now
+            job.locked_at = None
+            job.locked_by = None
+            job.error_code = "WORKER_RESTART_RECOVERED"
+            job.safe_error_message = "An interrupted ingestion job was safely resumed."
+        if jobs:
+            self.session.commit()
         return len(jobs)
 
     def worker_heartbeat(

@@ -82,6 +82,14 @@ export default function TenantLoginPage() {
             <Button className="w-full" disabled={isSubmitting}>
               {isSubmitting ? "Signing in…" : "Sign in with password"}
             </Button>
+            <div className="text-right">
+              <Link
+                className="text-sm text-blue-600 hover:underline"
+                href={`/t/${tenantSlug}/forgot-password`}
+              >
+                Forgot password?
+              </Link>
+            </div>
           </form>
           <div className="flex items-center gap-3 text-xs text-slate-400">
             <span className="h-px flex-1 bg-slate-200" />OR
@@ -103,14 +111,6 @@ export default function TenantLoginPage() {
           <p className="text-center text-xs text-slate-500">
             Local authentication is for emergency and administrative access.
           </p>
-          <div className="text-center">
-            <Link
-              className="text-sm text-blue-600 hover:underline"
-              href={`/t/${tenantSlug}`}
-            >
-              Back to tenant home
-            </Link>
-          </div>
         </CardContent>
       </Card>
     </main>

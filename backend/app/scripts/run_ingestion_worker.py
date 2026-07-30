@@ -61,6 +61,15 @@ def run() -> None:
             )
     worker_id = f"{socket.gethostname()}:{id(object())}"
     publish_startup_heartbeat(worker_id)
+    with SessionLocal() as session:
+        recovered = DocumentRepository(
+            session
+        ).recover_orphaned_jobs_after_lock_handoff()
+        if recovered:
+            logger.warning(
+                "Recovered interrupted ingestion jobs after worker startup",
+                extra={"worker_id": worker_id, "recovered_jobs": recovered},
+            )
     logger.info(
         "Ingestion worker started environment=%s worker_id=%s database=%s "
         "object_storage=%s embedding_provider=%s embedding_model=%s "

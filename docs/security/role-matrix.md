@@ -14,6 +14,10 @@
 | Upload/delete connector-owned documents | No | No | No | No | Yes, authenticated connector only |
 | Search own-tenant indexed documents | No impersonation | No impersonation | Yes | Yes | No |
 
+Local Platform Admin password recovery is an emergency host-level operation,
+not a role permission. A `platform_readonly` account cannot invoke it through
+the application, reset an administrator, or be promoted by the recovery CLI.
+
 ## Status interpretation for every role
 
 All roles see the same SaaS-derived connector status. Healthy source counts indicate successful local readability/scanning only. They do not establish that documents exist in SaaS.

@@ -60,6 +60,7 @@ def qdrant_health(config: Settings = settings) -> dict[str, Any]:
         vectors = vector_store(config)
         if not vectors.health_check():
             raise RuntimeError("health check failed")
+        vectors.ensure_collection(config.peka_embedding_dimension)
         point_count = vectors.count_all_points()
         return {
             **result,
@@ -71,5 +72,8 @@ def qdrant_health(config: Settings = settings) -> dict[str, Any]:
         return {
             **result,
             "status": "unavailable",
-            "reason": "Qdrant or the configured collection is unavailable.",
+            "reason": (
+                "Qdrant is unavailable or the collection embedding dimension "
+                "does not match the worker configuration."
+            ),
         }

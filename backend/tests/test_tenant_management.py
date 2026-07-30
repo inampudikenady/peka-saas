@@ -3,13 +3,19 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from fastapi import FastAPI, HTTPException, status
+from fastapi.testclient import TestClient
 
+from app.api.auth import require_platform_admin
+from app.api.dependencies import get_tenant_service
+from app.api.routes.platform import tenants as tenant_routes
+from app.core.timezones import iana_timezone_catalog
 from app.core.exceptions import TenantLifecycleError
 from app.models.tenant import Tenant, TenantStatus
 from app.models.tenant_admin_invite import TenantAdminInvite
 from app.models.tenant_sso_config import SSOProvider
 from app.schemas.tenant_sso import TenantSSOConfigUpdate
-from app.schemas.tenant import TenantCreate
+from app.schemas.tenant import TenantCreate, TenantResponse
 from app.services.tenant_admin_invite_service import TenantAdminInviteService
 from app.services.tenant_service import TenantService
 from app.services.tenant_sso_service import TenantSSOService
@@ -26,6 +32,8 @@ def make_tenant(status=TenantStatus.ACTIVE):
         status=status,
     )
     tenant.id = uuid4()
+    tenant.created_at = datetime.now(UTC)
+    tenant.updated_at = datetime.now(UTC)
     return tenant
 
 
@@ -47,11 +55,14 @@ class TenantRepositoryStub:
     def rollback(self):
         pass
 
+    def refresh(self, tenant):
+        pass
+
 
 def tenant_service(tenant):
     repository = TenantRepositoryStub(tenant)
     registry = SimpleNamespace(remove_by_slug=lambda slug: setattr(registry, "removed", slug))
-    manager = SimpleNamespace(registry=registry)
+    manager = SimpleNamespace(registry=registry, add=lambda item: None)
     return TenantService(repository, manager, SimpleNamespace()), repository, registry
 
 
@@ -69,6 +80,31 @@ def test_suspended_tenant_delete_requires_confirmation_and_updates_registry():
     service.delete("tuple", "tuple")
     assert repository.deleted and repository.committed
     assert registry.removed == "tuple"
+
+
+def test_deactivate_and_reactivate_do_not_require_typed_confirmation():
+    tenant = make_tenant()
+    service, repository, _ = tenant_service(tenant)
+
+    assert service.set_active("tuple", active=False).status == TenantStatus.SUSPENDED
+    assert service.set_active("tuple", active=True).status == TenantStatus.ACTIVE
+    assert repository.committed
+
+
+def test_platform_readonly_cannot_call_tenant_lifecycle_endpoint():
+    app = FastAPI()
+    app.include_router(tenant_routes.router, prefix="/api/v1")
+    app.dependency_overrides[get_tenant_service] = lambda: SimpleNamespace()
+
+    def reject_readonly():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Platform administrator access required.",
+        )
+
+    app.dependency_overrides[require_platform_admin] = reject_readonly
+    response = TestClient(app).post("/api/v1/platform/tenants/tuple/deactivate")
+    assert response.status_code == status.HTTP_403_FORBIDDEN
 
 
 class InviteRepositoryStub:
@@ -185,9 +221,10 @@ def test_blank_sso_secret_preserves_existing_value():
         "https://login.microsoftonline.com/"
         "11111111-1111-4111-8111-111111111111/v2.0"
     )
-    assert config.authorization_endpoint == "authorize"
-    assert config.token_endpoint == "token"
-    assert config.jwks_uri == "jwks"
+    # Save is local and deterministic; discovery is tested separately.
+    assert config.authorization_endpoint is None
+    assert config.token_endpoint is None
+    assert config.jwks_uri is None
 
 
 def test_tenant_creation_requires_an_iana_timezone():
@@ -199,5 +236,22 @@ def test_tenant_creation_requires_an_iana_timezone():
         "initial_admin_full_name": "Admin User",
     }
     assert TenantCreate(**values, timezone="Asia/Kolkata").timezone == "Asia/Kolkata"
+    assert TenantCreate(**values, timezone="Asia/Calcutta").timezone == "Asia/Kolkata"
     with pytest.raises(ValueError, match="IANA"):
         TenantCreate(**values, timezone="India Standard Time")
+
+
+def test_full_canonical_iana_timezone_catalog_is_available():
+    catalog = iana_timezone_catalog()
+    assert len(catalog) > 400
+    assert "Asia/Kolkata" in catalog
+    assert "Europe/London" in catalog
+    assert "America/New_York" in catalog
+    assert "Australia/Sydney" in catalog
+    assert "Asia/Calcutta" not in catalog
+
+
+def test_tenant_response_normalizes_deprecated_timezone_alias():
+    tenant = make_tenant()
+    tenant.timezone = "Asia/Calcutta"
+    assert TenantResponse.model_validate(tenant).timezone == "Asia/Kolkata"

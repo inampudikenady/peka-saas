@@ -11,6 +11,24 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { AIAnswerCitation } from "@/lib/types";
 
+export function codeTextFromReactNode(node: ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") {
+    return String(node);
+  }
+  if (node == null || typeof node === "boolean") {
+    return "";
+  }
+  if (Array.isArray(node)) {
+    return node.map(codeTextFromReactNode).join("");
+  }
+  if (isValidElement<{ children?: ReactNode }>(node)) {
+    return codeTextFromReactNode(node.props.children);
+  }
+  // ReactMarkdown code content should only contain renderable React nodes.
+  // Never coerce an unexpected internal object into user-visible text.
+  return "";
+}
+
 function safeLinkUrl(url: string) {
   if (url.startsWith("/") || url.startsWith("#")) return url;
   try {
@@ -78,7 +96,7 @@ function CodeBlock({
   language?: string;
 }) {
   const [copied, setCopied] = useState(false);
-  const value = String(children).replace(/\n$/, "");
+  const value = codeTextFromReactNode(children).replace(/\n$/, "");
 
   return (
     <div className="my-4 overflow-hidden rounded-lg border border-slate-700 bg-slate-950 text-slate-100">

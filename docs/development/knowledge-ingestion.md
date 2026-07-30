@@ -1,12 +1,12 @@
 # Local knowledge-ingestion runtime
 
-PEKA runs the SaaS backend, ingestion worker, and frontend natively. Only
-PostgreSQL and Qdrant are containerized for local development. The pipeline is:
+PEKA runs the SaaS backend (including ingestion), PostgreSQL, Ollama, and
+frontend natively. Only Qdrant is containerized for local development. The pipeline is:
 
 `Connector → Document Service → object storage → worker → parser → chunks → embeddings → Qdrant → Knowledge Service`
 
-The backend accepts uploads and creates PostgreSQL jobs; it does **not** process
-those jobs. A standalone worker must be running.
+The backend accepts uploads, creates PostgreSQL jobs, and starts one
+lock-protected in-process ingestion runtime in the FastAPI lifespan.
 
 ## One configuration source
 
@@ -48,14 +48,13 @@ Prerequisites are PostgreSQL 16, Python 3.13 with `backend/.venv` installed,
 Node.js 22 with frontend dependencies installed, Docker Desktop, and native
 Ollama for macOS.
 
-Use one terminal per long-lived native process:
+Use one terminal per long-lived native application:
 
 ```shell
 # Step 1: configuration
 cp backend/.env.example backend/.env
 
-# Step 2: PostgreSQL
-docker compose up -d postgres
+# Step 2: start the configured native PostgreSQL service
 
 # Step 3: Qdrant and prerequisite checks
 make knowledge-start
@@ -73,14 +72,11 @@ make validate-embedding
 # Step 6: backend
 (cd backend && DEBUG=false .venv/bin/uvicorn app.main:app --reload)
 
-# Step 7: worker (second terminal)
-(cd backend && DEBUG=false .venv/bin/python -m app.scripts.run_ingestion_worker)
-
-# Step 8: frontend (third terminal)
+# Step 7: frontend
 (cd frontend && npm run dev)
 
-# Step 9: start or use the existing connector from its own checkout.
-# Step 10: validate one complete pipeline.
+# Step 8: start or use the existing connector from its own checkout.
+# Step 9: validate one complete pipeline.
 make validate-knowledge TENANT=vitwo DOCUMENT_ID=<uuid> QUERY='expected phrase'
 ```
 
@@ -88,11 +84,11 @@ The connector remains a separate repository and is not configured or modified
 by this runtime work. Start it using that repository's native development
 instructions after PEKA is ready.
 
-The worker command above is the supported command. It publishes a heartbeat
-immediately, logs safe startup state for the database, object store, embedding
-provider, Qdrant, collection, poll interval and concurrency, continuously polls,
-recovers stale locks, logs its first idle transition, and handles SIGINT/SIGTERM.
-A local file lock prevents accidentally starting a duplicate worker process.
+The FastAPI in-process runtime publishes a heartbeat immediately, continuously
+claims jobs, recovers stale locks, and shuts down with the backend. For
+diagnostic recovery only, stop the backend first and run
+`DEBUG=false .venv/bin/python -m app.scripts.run_ingestion_worker`. Both modes
+use the same local file lock, so duplicate consumers cannot run.
 
 ## Qdrant
 
@@ -256,3 +252,11 @@ Production still requires managed shared object storage, authenticated TLS
 Qdrant, secret injection, supervised workers, backups, retention controls, and
 alerts. OCR, unsupported legacy formats, conversational AI, agents, and routing
 are outside this milestone.
+## Structured text detection
+
+Text ingestion considers filename extension, declared MIME type, and content.
+It records `plain_text`, `markdown`, or `dokuwiki` together with confidence,
+reason, and source format. DokuWiki headings, lists, code/file blocks, tables,
+links, and inline monospace are normalized to canonical Markdown before
+chunking. Markdown block boundaries and short fenced code blocks are preserved
+instead of being flattened into word-only prose.

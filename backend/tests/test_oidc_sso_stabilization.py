@@ -176,6 +176,59 @@ def test_existing_microsoft_issuer_in_generic_mode_stays_generic():
     assert result.client_secret_encrypted == "enc:existing"
 
 
+def test_seeded_placeholder_accepts_first_secret_without_discovery():
+    config = SimpleNamespace(
+        provider=SSOProvider.GENERIC_OIDC,
+        entra_tenant_id=None,
+        issuer_url=None,
+        client_id=None,
+        client_secret_encrypted=None,
+        authorization_endpoint=None,
+        token_endpoint=None,
+        jwks_uri=None,
+        redirect_uri=None,
+        scopes="openid profile email",
+        enabled=False,
+    )
+    repository = SimpleNamespace(
+        get_by_tenant_id=lambda tenant_id: config,
+        commit=lambda: None,
+        refresh=lambda value: None,
+        rollback=lambda: None,
+    )
+    tenant = SimpleNamespace(
+        slug="acme",
+        subdomain="acme.example",
+        tenant_url="https://acme.example",
+    )
+    service = TenantSSOService(
+        repository,
+        SimpleNamespace(get_by_id=lambda tenant_id: tenant),
+        SimpleNamespace(
+            discover=lambda issuer: (_ for _ in ()).throw(
+                AssertionError("save must not perform discovery")
+            )
+        ),
+        SimpleNamespace(
+            encrypt=lambda secret: f"enc:{secret}",
+            decrypt=lambda secret: secret.removeprefix("enc:"),
+            is_encrypted=lambda secret: secret.startswith("enc:"),
+        ),
+    )
+    result = service.upsert(
+        uuid4(),
+        TenantSSOConfigUpdate(
+            provider=SSOProvider.MICROSOFT_ENTRA,
+            entra_tenant_id=TENANT_ID,
+            client_id="client",
+            client_secret="new-secret",
+            enabled=True,
+        ),
+    )
+    assert result.client_secret_encrypted == "enc:new-secret"
+    assert result.authorization_endpoint is None
+
+
 def test_reading_legacy_entra_config_encrypts_secret_and_derives_tenant_id():
     config = SimpleNamespace(
         provider=SSOProvider.MICROSOFT_ENTRA,

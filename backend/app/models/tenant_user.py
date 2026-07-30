@@ -2,7 +2,7 @@ import enum
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Entity
@@ -75,4 +75,49 @@ class TenantUser(Entity):
         Enum(TenantUserRole, name="tenant_user_role"),
         default=TenantUserRole.TENANT_USER,
         nullable=False,
+    )
+
+    failed_login_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )
+    locked: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class TenantPasswordResetToken(Entity):
+    __tablename__ = "tenant_password_reset_tokens"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    tenant_user_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenant_users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    requested_by_platform_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("platform_admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    token_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True
+    )
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class DevelopmentEmail(Entity):
+    __tablename__ = "development_emails"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    recipient: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    subject: Mapped[str] = mapped_column(String(500), nullable=False)
+    body_text: Mapped[str] = mapped_column(Text, nullable=False)
+    action_url: Mapped[str] = mapped_column(Text, nullable=False)
+    delivery_state: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="captured"
     )

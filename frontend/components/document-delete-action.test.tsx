@@ -51,7 +51,7 @@ it("confirms the named document and warns that PEKA knowledge is affected", asyn
   fireEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
 
   await waitFor(() => expect(deleteDocument).toHaveBeenCalledWith(
-    "acme", "doc-1", "connector-1"
+    "acme", "doc-1"
   ));
   expect(onDeleted).toHaveBeenCalledOnce();
 });

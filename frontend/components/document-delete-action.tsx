@@ -84,9 +84,7 @@ export function DocumentDeleteAction({
             setWorking(true);
             setError("");
             try {
-              onDeleted(await tenantApi.deleteDocument(
-                tenantSlug, document.id, document.connector_id
-              ));
+              onDeleted(await tenantApi.deleteDocument(tenantSlug, document.id));
               setConfirming(false);
             } catch (caught) {
               setError(

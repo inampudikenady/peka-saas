@@ -108,6 +108,7 @@ def get_current_tenant_user(
     if (
         user is None
         or not user.is_active
+        or user.locked
         or user.tenant_id != tenant_context.tenant_id
     ):
         raise _tenant_unauthorized()

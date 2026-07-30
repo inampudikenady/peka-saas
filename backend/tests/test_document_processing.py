@@ -122,7 +122,80 @@ def test_qdrant_tenant_filter_upsert_search_and_delete():
 def test_markdown_headings_and_line_endings_are_preserved():
     parsed = parser_for("policy.md").parse(BytesIO(b"# Passwords\r\nRotate regularly.\r\n"))
     assert parsed.sections[0].section_title == "Passwords"
+    assert parsed.sections[0].text.startswith("# Passwords")
     assert "\r" not in parsed.sections[0].text
+
+
+def test_same_txt_extension_detects_plain_markdown_and_dokuwiki_content():
+    plain = parser_for("notes.txt", "text/plain").parse(
+        BytesIO(b"Call the service desk if assistance is required.")
+    )
+    markdown = parser_for("notes.txt", "text/plain").parse(
+        BytesIO(b"# Restart\n\n```bash\nsystemctl restart peka\n```\n")
+    )
+    dokuwiki = parser_for("notes.txt", "text/plain").parse(
+        BytesIO(b"====== Restart ======\n  * Run<code|bash>systemctl restart peka</code>\n")
+    )
+
+    assert plain.detected_format == "plain_text"
+    assert markdown.detected_format == "markdown"
+    assert dokuwiki.detected_format == "dokuwiki"
+    assert dokuwiki.source_format == "dokuwiki_export"
+
+
+def test_dokuwiki_normalizes_supported_structures_to_canonical_markdown():
+    source = b"""====== Operations ======
+  * Restart the service
+<code bash>
+systemctl restart peka
+  systemctl status peka
+</code>
+^ Host ^ State ^
+| util001 | up |
+[[https://example.test/runbook|Runbook]]
+Use ''systemctl''.
+"""
+    parsed = parser_for("operations.txt", "text/plain").parse(BytesIO(source))
+    normalized = "\n".join(section.text for section in parsed.sections)
+
+    assert normalized.startswith("# Operations")
+    assert "- Restart the service" in normalized
+    assert "```bash\nsystemctl restart peka\n  systemctl status peka\n```" in normalized
+    assert "| Host | State |" in normalized
+    assert "| --- | --- |" in normalized
+    assert "[Runbook](https://example.test/runbook)" in normalized
+    assert "`systemctl`" in normalized
+
+
+def test_mixed_symbols_without_strong_structure_fall_back_to_plain_text():
+    parsed = parser_for("mixed.txt", "text/plain").parse(
+        BytesIO(b"Use #1 for support. The value a|b is accepted and [x] is a label.")
+    )
+    assert parsed.detected_format == "plain_text"
+
+
+def test_structured_chunking_preserves_code_and_heading_context():
+    command = (
+        b"useradd -g dba " + b"\\" + b"\n"
+        b"  -d /home/kohlerdba " + b"\\" + b"\n"
+        b"  kohlerdba\n"
+    )
+    parsed = parser_for("runbook.txt", "text/plain").parse(
+        BytesIO(
+            b"====== User setup ======\n"
+            b"  * Create the account<code bash>\n"
+            + command
+            + b"</code>\n"
+            + b"\nParagraph content. " * 30
+        )
+    )
+    chunks = chunk_document(parsed, target_words=25)
+    command_chunk = next(chunk for chunk in chunks if "useradd -g dba" in chunk.text)
+
+    assert "# User setup" in command_chunk.text
+    assert "```bash" in command_chunk.text
+    assert "useradd -g dba \\\n  -d /home/kohlerdba \\\n  kohlerdba" in command_chunk.text
+    assert all("[object Object]" not in chunk.text for chunk in chunks)
 
 
 def test_docx_heading_and_xlsx_sheet_rows_are_preserved():

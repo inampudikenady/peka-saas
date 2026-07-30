@@ -12,6 +12,9 @@ from app.api.routes.platform.tenants import router as platform_tenants_router
 from app.api.routes.platform.auth import router as platform_auth_router
 from app.api.routes.platform.users import router as platform_users_router
 from app.api.routes.platform.settings import router as platform_settings_router
+from app.api.routes.platform.development_email import (
+    router as platform_development_email_router,
+)
 from app.api.routes.tenant.auth import router as tenant_auth_router
 from app.core.tenant_registry import tenant_registry
 from app.db.session import SessionLocal
@@ -38,6 +41,7 @@ from app.services.knowledge_initialization import initialize_knowledge_dependenc
 from app.services.knowledge_runtime_health import embedding_health, qdrant_health
 from app.services.chat_runtime_health import chat_health
 from app.schemas.ai_answer import AIAnswerErrorCode, AIAnswerErrorResponse
+from app.services.ingestion_runtime import ingestion_runtime
 
 from app.core.exceptions import (
     TenantAlreadyExistsError,
@@ -74,6 +78,11 @@ app.include_router(
     tags=["platform-users"],
 )
 app.include_router(platform_settings_router, prefix=settings.api_prefix, tags=["platform-settings"])
+app.include_router(
+    platform_development_email_router,
+    prefix=settings.api_prefix,
+    tags=["platform-development-email"],
+)
 
 app.include_router(
     platform_tenants_router,
@@ -198,6 +207,8 @@ async def startup_event() -> None:
     finally:
         db.close()
     initialize_knowledge_dependencies()
+    if ingestion_runtime.start():
+        logger.info("Mac-native in-process ingestion runtime enabled")
     maintenance_task = asyncio.create_task(connector_maintenance_loop())
 
 
@@ -211,6 +222,7 @@ async def shutdown_event() -> None:
         except asyncio.CancelledError:
             pass
         maintenance_task = None
+    ingestion_runtime.stop()
 
 
 @app.get("/health")

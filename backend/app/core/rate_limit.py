@@ -26,3 +26,5 @@ class InMemoryRateLimiter:
 
 registration_limiter = InMemoryRateLimiter(limit=10, window_seconds=300)
 heartbeat_limiter = InMemoryRateLimiter(limit=30, window_seconds=60)
+tenant_password_reset_limiter = InMemoryRateLimiter(limit=5, window_seconds=900)
+tenant_password_reset_consume_limiter = InMemoryRateLimiter(limit=10, window_seconds=900)

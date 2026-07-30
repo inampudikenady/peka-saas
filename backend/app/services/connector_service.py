@@ -351,6 +351,7 @@ class ConnectorService:
             connector_secret=raw_secret,
             heartbeat_interval_seconds=connector.heartbeat_interval_seconds,
             registered_at=connector.registered_at,
+            tenant_timezone=tenant.timezone,
         )
         response._registration_token_id = token_id
         return response
@@ -461,7 +462,14 @@ class ConnectorService:
         except Exception:
             self.repository.rollback()
             raise
-        return ConnectorHeartbeatResponse(server_time=now, next_heartbeat_seconds=connector.heartbeat_interval_seconds)
+        tenant = self.tenant_repository.get_by_id(connector.tenant_id)
+        if tenant is None:
+            raise ConnectorServiceError("Connector tenant no longer exists.", 409)
+        return ConnectorHeartbeatResponse(
+            server_time=now,
+            next_heartbeat_seconds=connector.heartbeat_interval_seconds,
+            tenant_timezone=tenant.timezone,
+        )
 
     def _recalculate_many(self, connectors: list[ManagedConnector], now: datetime) -> None:
         changed = False
@@ -474,9 +482,9 @@ class ConnectorService:
             self.repository.commit()
 
     @staticmethod
-    def _summary(connector: ManagedConnector, tenant_name: str | None = None, tenant_slug: str | None = None) -> ConnectorSummaryResponse:
+    def _summary(connector: ManagedConnector, tenant_name: str | None = None, tenant_slug: str | None = None, tenant_timezone: str | None = None) -> ConnectorSummaryResponse:
         return ConnectorSummaryResponse(
-            id=connector.id, tenant_id=connector.tenant_id, tenant_name=tenant_name, tenant_slug=tenant_slug,
+            id=connector.id, tenant_id=connector.tenant_id, tenant_name=tenant_name, tenant_slug=tenant_slug, tenant_timezone=tenant_timezone,
             name=connector.name, instance_id=connector.instance_id, version=connector.version,
             environment=connector.environment, status=connector.status.value,
             registered_at=connector.registered_at, last_heartbeat_at=connector.last_heartbeat_at,
@@ -490,16 +498,17 @@ class ConnectorService:
     def list_tenant_connectors(self, tenant_id: UUID, *, include_retired: bool = False) -> list[ConnectorSummaryResponse]:
         connectors = self.repository.list_for_tenant(tenant_id, include_retired=include_retired)
         self._recalculate_many(connectors, self.now())
-        return [self._summary(connector) for connector in connectors]
+        tenant = self.tenant_repository.get_by_id(tenant_id)
+        return [self._summary(connector, tenant_timezone=tenant.timezone if tenant else None) for connector in connectors]
 
     def list_platform_connectors(self, *, include_retired: bool = False) -> list[ConnectorSummaryResponse]:
         rows = self.repository.list_for_platform(include_retired=include_retired)
         self._recalculate_many([row[0] for row in rows], self.now())
-        return [self._summary(connector, tenant.display_name, tenant.slug) for connector, tenant in rows]
+        return [self._summary(connector, tenant.display_name, tenant.slug, tenant.timezone) for connector, tenant in rows]
 
-    def detail(self, connector: ManagedConnector, tenant_name: str | None = None, tenant_slug: str | None = None) -> ConnectorDetailResponse:
+    def detail(self, connector: ManagedConnector, tenant_name: str | None = None, tenant_slug: str | None = None, tenant_timezone: str | None = None) -> ConnectorDetailResponse:
         self._recalculate_many([connector], self.now())
-        summary = self._summary(connector, tenant_name, tenant_slug).model_dump()
+        summary = self._summary(connector, tenant_name, tenant_slug, tenant_timezone).model_dump()
         return ConnectorDetailResponse(
             **summary,
             capabilities=self.repository.list_capabilities(connector.tenant_id, connector.id),
@@ -512,14 +521,14 @@ class ConnectorService:
         if connector is None:
             raise ConnectorServiceError("Connector not found.", 404)
         tenant = self.tenant_repository.get_by_id(tenant_id)
-        return self.detail(connector, tenant.display_name if tenant else None, tenant.slug if tenant else None)
+        return self.detail(connector, tenant.display_name if tenant else None, tenant.slug if tenant else None, tenant.timezone if tenant else None)
 
     def get_platform_detail(self, connector_id: UUID) -> ConnectorDetailResponse:
         connector = self.repository.get_unscoped(connector_id)
         if connector is None:
             raise ConnectorServiceError("Connector not found.", 404)
         tenant = self.tenant_repository.get_by_id(connector.tenant_id)
-        return self.detail(connector, tenant.display_name if tenant else None, tenant.slug if tenant else None)
+        return self.detail(connector, tenant.display_name if tenant else None, tenant.slug if tenant else None, tenant.timezone if tenant else None)
 
     def retire(self, tenant_id: UUID, connector_id: UUID, actor: TenantUser) -> ConnectorDetailResponse:
         connector = self.repository.get(tenant_id, connector_id)

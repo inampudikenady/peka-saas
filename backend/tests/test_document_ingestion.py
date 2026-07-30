@@ -132,7 +132,7 @@ def test_upsert_is_durable_verified_and_idempotent(ingestion):
     assert db.scalar(select(func.count()).select_from(IngestionJob)) == 1
     assert db.scalar(select(func.count()).select_from(DocumentIdempotencyRecord)) == 1
     version = db.get(DocumentVersion, first.version_id)
-    assert f"tenants/{connector.tenant_id}/connectors/{connector.id}/" in version.object_key
+    assert f"tenants/{connector.tenant_id}/documents/{first.document_id}/" in version.object_key
     assert service.storage.verify_hash(version.object_key, first.content_hash)
     assert service.storage.health_check() is True
 
@@ -153,6 +153,77 @@ def test_conflicting_idempotency_key_and_hash_mismatch_are_rejected(ingestion):
             "request-key-0003", BytesIO(content),
         )
     assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 1
+
+
+def test_replacement_connector_reuses_tenant_owned_indexed_document(ingestion):
+    db, service, repository, connector, _ = ingestion
+    replacement = ManagedConnector(
+        tenant_id=connector.tenant_id,
+        name="Replacement connector",
+        instance_id=uuid4(),
+        version="2.0",
+        environment="test",
+        status=ManagedConnectorStatus.CONNECTED,
+        secret_hash=hash_connector_secret("replacement-secret"),
+        registered_at=datetime.now(UTC),
+        heartbeat_interval_seconds=300,
+    )
+    db.add(replacement)
+    db.commit()
+    content = b"Stable tenant-owned runbook content."
+    first = service.accept(
+        connector,
+        metadata(content, source_id="old-local-source"),
+        "old-connector-upload",
+        BytesIO(content),
+    )
+    vectors = InMemoryVectorStore()
+    worker = IngestionWorker(
+        repository,
+        service.storage,
+        DeterministicFakeEmbeddingProvider(16),
+        vectors,
+        "tenant-owned-dedupe-worker",
+    )
+    for _ in range(3):
+        assert worker.run_once() is True
+
+    connector.status = ManagedConnectorStatus.RETIRED
+    connector.retired_at = datetime.now(UTC)
+    db.commit()
+    observed_again = service.accept(
+        replacement,
+        metadata(content, source_id="replacement-local-source"),
+        "replacement-connector-upload",
+        BytesIO(content),
+    )
+    db.expire_all()
+
+    document = db.get(Document, first.document_id)
+    assert observed_again.document_id == first.document_id
+    assert observed_again.version_id == first.version_id
+    assert observed_again.ingestion_status == "INDEXED"
+    assert document.created_by_connector_id == connector.id
+    assert document.last_seen_by_connector_id == replacement.id
+    assert document.connector_id == replacement.id
+    assert document.last_synchronized_at is not None
+    assert db.scalar(select(func.count()).select_from(Document)) == 1
+    assert db.scalar(select(func.count()).select_from(DocumentVersion)) == 1
+    assert vectors.count_points(
+        connector.tenant_id, first.document_id, first.version_id
+    ) > 0
+    filtered = KnowledgeService(
+        repository, DeterministicFakeEmbeddingProvider(16), vectors
+    ).search(
+        connector.tenant_id,
+        SearchRequest.model_validate(
+            {
+                "query": "tenant-owned runbook",
+                "filters": {"connector_id": str(replacement.id)},
+            }
+        ),
+    )
+    assert filtered.results
 
 
 def test_failed_object_write_never_acknowledges_or_commits(ingestion):
@@ -258,7 +329,7 @@ def test_tenant_admin_can_delete_every_supported_active_document(
     ) == 1
 
 
-def test_tenant_delete_rejects_duplicate_cross_connector_and_cross_tenant(ingestion):
+def test_tenant_delete_is_tenant_owned_and_rejects_duplicate_cross_tenant(ingestion):
     db, service, _, connector, other_connector = ingestion
     content = b"owned document"
     accepted = service.accept(
@@ -267,16 +338,6 @@ def test_tenant_delete_rejects_duplicate_cross_connector_and_cross_tenant(ingest
     tenant = db.get(Tenant, connector.tenant_id)
     other_tenant = db.get(Tenant, other_connector.tenant_id)
     admin = tenant_admin(db, tenant.id)
-
-    with pytest.raises(HTTPException) as wrong_connector:
-        delete_document(
-            accepted.document_id,
-            connector_id=other_connector.id,
-            tenant=tenant_context(tenant),
-            user=admin,
-            db=db,
-        )
-    assert wrong_connector.value.status_code == 403
 
     with pytest.raises(HTTPException) as wrong_tenant:
         delete_document(
@@ -290,7 +351,8 @@ def test_tenant_delete_rejects_duplicate_cross_connector_and_cross_tenant(ingest
 
     delete_document(
         accepted.document_id,
-        connector_id=connector.id,
+        # Connector provenance is not an ownership boundary.
+        connector_id=other_connector.id,
         tenant=tenant_context(tenant),
         user=admin,
         db=db,
@@ -339,7 +401,7 @@ def test_legacy_document_without_optional_version_can_be_deleted(ingestion):
     assert result.processing_status == "Delete pending"
 
 
-def test_invalid_legacy_connector_ownership_is_explained_and_rejected(ingestion):
+def test_missing_connector_provenance_does_not_block_tenant_owned_delete(ingestion):
     db, service, _, connector, _ = ingestion
     content = b"legacy ownership"
     accepted = service.accept(
@@ -351,17 +413,16 @@ def test_invalid_legacy_connector_ownership_is_explained_and_rejected(ingestion)
     document.connector_id = uuid4()
     db.flush()
 
-    with pytest.raises(HTTPException) as rejected:
-        delete_document(
-            document.id,
-            connector_id=document.connector_id,
-            tenant=tenant_context(tenant),
-            user=admin,
-            db=db,
-        )
+    deleted = delete_document(
+        document.id,
+        connector_id=document.connector_id,
+        tenant=tenant_context(tenant),
+        user=admin,
+        db=db,
+    )
 
-    assert rejected.value.status_code == 422
-    assert "ownership" in rejected.value.detail
+    assert deleted.is_deleted is True
+    assert deleted.processing_status == "Delete pending"
 
 
 def test_failed_index_delete_remains_retryable_across_worker_restart(ingestion):
@@ -532,6 +593,121 @@ def test_worker_indexes_current_version_and_processes_delete(ingestion):
     assert knowledge.search(
         connector.tenant_id, SearchRequest(query="Linux service account")
     ).results == []
+
+
+def test_dokuwiki_txt_is_detected_normalized_chunked_and_retrieved_with_code(ingestion):
+    db, service, repository, connector, _ = ingestion
+    content = b"""===== User id for Kohler DBA's & SAPbasis =====
+  * Create Kohler DBA and SAPbasis IDs<code bash>
+sudo useradd -g dba \\
+  -d /home/kohlerdba \\
+  -m -u 77777 kohlerdba
+</code>
+"""
+    accepted = service.accept(
+        connector,
+        metadata(
+            content,
+            document_key="create_userid_kohler_dba_basis.txt",
+            filename="create_userid_kohler_dba_basis.txt",
+            relative_path="create_userid_kohler_dba_basis.txt",
+        ),
+        "dokuwiki-command-key",
+        BytesIO(content),
+    )
+    vectors = InMemoryVectorStore()
+    worker = IngestionWorker(
+        repository,
+        service.storage,
+        DeterministicFakeEmbeddingProvider(16),
+        vectors,
+        "dokuwiki-worker",
+    )
+    for _ in range(3):
+        assert worker.run_once() is True
+    db.expire_all()
+    version = db.get(DocumentVersion, accepted.version_id)
+    chunks = repository.list_chunks(connector.tenant_id, version.id)
+
+    assert version.detected_format == "dokuwiki"
+    assert version.source_format == "dokuwiki_export"
+    assert version.format_detection_confidence >= 0.7
+    assert chunks[0].text.startswith("## User id for Kohler DBA's & SAPbasis")
+    assert "```bash" in chunks[0].text
+    assert (
+        "sudo useradd -g dba \\\n  -d /home/kohlerdba \\\n"
+        "  -m -u 77777 kohlerdba"
+    ) in chunks[0].text
+    results = KnowledgeService(
+        repository, DeterministicFakeEmbeddingProvider(16), vectors
+    ).search(
+        connector.tenant_id,
+        SearchRequest(
+            query="key procedures create userid kohler dba basis",
+            top_k=8,
+        ),
+    ).results
+    assert results
+    assert "sudo useradd -g dba" in results[0].text
+
+
+def test_reindex_reparses_historical_txt_with_current_detection_and_chunker(ingestion):
+    db, service, repository, connector, _ = ingestion
+    content = b"""===== Operations =====
+<code bash>
+systemctl status prometheus
+</code>
+"""
+    accepted = service.accept(
+        connector,
+        metadata(
+            content,
+            document_key="historical.txt",
+            filename="historical.txt",
+            relative_path="historical.txt",
+        ),
+        "historical-reindex-key",
+        BytesIO(content),
+    )
+    vectors = InMemoryVectorStore()
+    worker = IngestionWorker(
+        repository,
+        service.storage,
+        DeterministicFakeEmbeddingProvider(16),
+        vectors,
+        "historical-reindex-worker",
+    )
+    for _ in range(3):
+        assert worker.run_once() is True
+
+    version = db.get(DocumentVersion, accepted.version_id)
+    version.detected_format = None
+    version.source_format = None
+    version.format_detection_confidence = None
+    version.format_detection_reason = None
+    version.parser_version = "legacy"
+    version.chunker_version = "legacy"
+    db.commit()
+    repository.enqueue_job(
+        connector.tenant_id,
+        accepted.document_id,
+        accepted.version_id,
+        IngestionJobType.REINDEX_DOCUMENT,
+    )
+    db.commit()
+
+    for _ in range(4):
+        assert worker.run_once() is True
+    db.expire_all()
+    version = db.get(DocumentVersion, accepted.version_id)
+    chunks = repository.list_chunks(connector.tenant_id, version.id)
+
+    assert version.ingestion_status == IngestionStatus.INDEXED
+    assert version.detected_format == "dokuwiki"
+    assert version.parser_version != "legacy"
+    assert version.chunker_version == "3"
+    assert len(chunks) == 1
+    assert "```bash\nsystemctl status prometheus\n```" in chunks[0].text
 
 
 def test_missing_embedding_provider_stops_safely_at_chunked(ingestion):

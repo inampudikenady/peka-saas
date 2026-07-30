@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 
@@ -28,7 +28,7 @@ def create_access_token(
     username: str,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    expires_at = datetime.utcnow() + (
+    expires_at = datetime.now(UTC) + (
         expires_delta
         or timedelta(minutes=settings.platform_admin_access_token_minutes)
     )
@@ -53,7 +53,7 @@ def create_tenant_access_token(
     tenant_id: UUID,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    expires_at = datetime.utcnow() + (
+    expires_at = datetime.now(UTC) + (
         expires_delta
         or timedelta(minutes=settings.tenant_access_token_minutes)
     )

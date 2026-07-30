@@ -1,4 +1,4 @@
-import type { AIAnswerCitation, AIAnswerRequest, AIAnswerResponse, AICitationEvidence, AIConversation, AIConversationList, AIPromptSuggestions, ConnectorDetail, ManagedConnector, ManagedDocument, ManagedDocumentListItem, PlatformInvitation, PlatformSettings, PlatformTokenResponse, PlatformUser, PlatformUserInput, RegistrationToken, RegistrationTokenCreated, Tenant, TenantAdminInvite, TenantCreate, TenantCreateResponse, TenantMe, TenantPlatformSummary, TenantSSOConfig, TenantSSOLoginOptions, TenantSSOUpdate, TenantUser, TenantUserInvitation } from "@/lib/types";
+import type { AIAnswerCitation, AIAnswerRequest, AIAnswerResponse, AICitationEvidence, AIConversation, AIConversationList, AIPromptSuggestions, ConnectorDetail, DevelopmentEmail, IngestionHealth, ManagedConnector, ManagedDocument, ManagedDocumentListItem, PlatformInvitation, PlatformSettings, PlatformTokenResponse, PlatformUser, PlatformUserInput, RegistrationToken, RegistrationTokenCreated, Tenant, TenantAdministrator, TenantAdminInvite, TenantAuditEvent, TenantCreate, TenantCreateResponse, TenantMe, TenantPlatformSummary, TenantSSOConfig, TenantSSOLoginOptions, TenantSSOTest, TenantSSOUpdate, TenantUser, TenantUserInvitation } from "@/lib/types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -92,8 +92,13 @@ export const platformApi = {
   tenants: () => platformRequest<Tenant[]>("/api/v1/platform/tenants"),
   tenant: (slug: string) => platformRequest<Tenant>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}`),
   tenantSummary: (slug: string) => platformRequest<TenantPlatformSummary>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/summary`),
+  updateTenant: (slug: string, body: {display_name?: string;timezone?: string}) => platformRequest<Tenant>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}`, {method:"PATCH",body:JSON.stringify(body)}),
+  tenantAdministrators: (slug: string) => platformRequest<TenantAdministrator[]>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/administrators`),
+  sendTenantAdministratorPasswordReset: (slug: string, userId: string) => platformRequest<void>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/administrators/${encodeURIComponent(userId)}/password-reset`, { method: "POST" }),
+  tenantAuditEvents: (slug: string) => platformRequest<TenantAuditEvent[]>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/audit-events`),
   tenantInvite: (slug: string) => platformRequest<TenantAdminInvite | null>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/admin-invite`),
   regenerateInvite: (slug: string) => platformRequest<TenantAdminInvite>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/admin-invite/regenerate`, { method: "POST" }),
+  updateInviteRecipient: (slug:string, body:{email:string;full_name:string}) => platformRequest<TenantAdminInvite>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/admin-invite`, {method:"PATCH",body:JSON.stringify(body)}),
   deactivateTenant: (slug: string) => platformRequest<Tenant>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/deactivate`, { method: "POST" }),
   activateTenant: (slug: string) => platformRequest<Tenant>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}/activate`, { method: "POST" }),
   deleteTenant: (slug: string) => platformRequest<void>(`/api/v1/platform/tenants/${encodeURIComponent(slug)}?confirmation=${encodeURIComponent(slug)}`, { method: "DELETE" }),
@@ -109,18 +114,23 @@ export const platformApi = {
   changePassword: (body: { current_password: string; new_password: string }) => platformRequest<void>("/api/v1/platform/auth/change-password", { method: "POST", body: JSON.stringify(body) }),
   resetPassword: (body: { token: string; new_password: string }) => request<void>("/api/v1/platform/auth/reset-password", { method: "POST", body: JSON.stringify(body) }),
   settings: () => platformRequest<PlatformSettings>("/api/v1/platform/settings"),
+  timezones: () => platformRequest<{ timezones: string[]; aliases: Record<string, string> }>("/api/v1/platform/settings/timezones"),
   connectors: (includeRetired = false) => platformRequest<ManagedConnector[]>(`/api/v1/platform/connectors?include_retired=${includeRetired}`),
   connector: (id: string) => platformRequest<ConnectorDetail>(`/api/v1/platform/connectors/${id}`),
+  developmentEmailOutbox: (tenantSlug?: string) => platformRequest<DevelopmentEmail[]>(`/api/v1/platform/development-email-outbox${tenantSlug ? `?tenant_slug=${encodeURIComponent(tenantSlug)}` : ""}`),
 };
 
 export const tenantApi = {
   activate: (slug: string, body: { token: string; password: string }) => request<{ authenticated: boolean }>(`${tenantBase(slug)}/auth/activate`, { method: "POST", credentials: "include", body: JSON.stringify(body) }),
   localLogin: (slug: string, body: { username: string; password: string }) => request<{ authenticated: boolean }>(`${tenantBase(slug)}/auth/local-login`, { method: "POST", credentials: "include", body: JSON.stringify(body) }),
+  forgotPassword: (slug: string, body: { email: string }) => request<{ message: string }>(`${tenantBase(slug)}/auth/forgot-password`, { method: "POST", credentials: "include", body: JSON.stringify(body) }),
+  resetPassword: (slug: string, body: { token: string; new_password: string }) => request<void>(`${tenantBase(slug)}/auth/reset-password`, { method: "POST", credentials: "include", body: JSON.stringify(body) }),
   me: (slug: string) => request<TenantMe>(`${tenantBase(slug)}/auth/me`, { credentials: "include" }),
   logout: (slug: string) => request<void>(`${tenantBase(slug)}/auth/logout`, { method: "POST", credentials: "include" }),
   ssoOptions: (slug: string) => request<TenantSSOLoginOptions>(`${tenantBase(slug)}/auth/sso-options`, { credentials: "include" }),
   getSSO: (slug: string) => request<TenantSSOConfig>(`${tenantBase(slug)}/admin/security/sso`, { credentials: "include" }),
   updateSSO: (slug: string, body: TenantSSOUpdate) => request<TenantSSOConfig>(`${tenantBase(slug)}/admin/security/sso`, { method: "PUT", credentials: "include", body: JSON.stringify(body) }),
+  testSSO: (slug: string) => request<TenantSSOTest>(`${tenantBase(slug)}/admin/security/sso/test`, { method: "POST", credentials: "include" }),
   users: (slug: string) => request<TenantUser[]>(`${tenantBase(slug)}/admin/users`, { credentials: "include" }),
   setUserRole: (slug: string, id: string, role: TenantUser["role"]) => request<TenantUser>(`${tenantBase(slug)}/admin/users/${id}/role`, { method: "PUT", credentials: "include", body: JSON.stringify({ role }) }),
   setUserActive: (slug: string, id: string, active: boolean) => request<TenantUser>(`${tenantBase(slug)}/admin/users/${id}/${active ? "activate" : "deactivate"}`, { method: "POST", credentials: "include" }),
@@ -134,10 +144,11 @@ export const tenantApi = {
   createRegistrationToken: (slug: string) => request<RegistrationTokenCreated>(`${tenantBase(slug)}/connectors/registration-tokens`, { method: "POST", credentials: "include", body: JSON.stringify({}) }),
   revokeRegistrationToken: (slug: string, id: string) => request<void>(`${tenantBase(slug)}/connectors/registration-tokens/${id}`, { method: "DELETE", credentials: "include" }),
   documents: (slug: string, includeDeleted = false) => request<ManagedDocumentListItem[]>(`${tenantBase(slug)}/documents?include_deleted=${includeDeleted}`, { credentials: "include" }),
+  ingestionHealth: (slug: string) => request<IngestionHealth>(`${tenantBase(slug)}/documents/ingestion-health`, { credentials: "include" }),
   document: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}`, { credentials: "include" }),
   retryDocument: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}/retry`, { method: "POST", credentials: "include" }),
   reindexDocument: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}/reindex`, { method: "POST", credentials: "include" }),
-  deleteDocument: (slug: string, id: string, connectorId: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}?connector_id=${encodeURIComponent(connectorId)}`, { method: "DELETE", credentials: "include" }),
+  deleteDocument: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}`, { method: "DELETE", credentials: "include" }),
   answer: (slug:string, body:AIAnswerRequest) => request<AIAnswerResponse>(`${tenantBase(slug)}/ai/answer`, {method:"POST",credentials:"include",body:JSON.stringify(body)}),
   assistantSuggestions: (slug:string) => request<AIPromptSuggestions>(`${tenantBase(slug)}/ai/suggestions`, {credentials:"include"}),
   streamAnswer: streamAIAnswer,

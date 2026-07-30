@@ -49,3 +49,12 @@ class TenantSSOConfigResponse(BaseModel):
 class TenantSSOLoginOptions(BaseModel):
     provider: SSOProvider | None
     enabled: bool
+
+
+class TenantSSOTestResponse(BaseModel):
+    success: bool
+    issuer_url: str
+    authorization_endpoint: str
+    token_endpoint: str
+    jwks_uri: str
+    message: str
