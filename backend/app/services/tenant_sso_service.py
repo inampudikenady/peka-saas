@@ -53,9 +53,8 @@ class TenantSSOService:
         if config is None:
             return None
         changed = False
-        if (
+        if config.client_secret_encrypted and not self.secret_cipher.is_encrypted(
             config.client_secret_encrypted
-            and not self.secret_cipher.is_encrypted(config.client_secret_encrypted)
         ):
             config.client_secret_encrypted = self.secret_cipher.encrypt(
                 config.client_secret_encrypted
@@ -82,9 +81,7 @@ class TenantSSOService:
             self.repository.refresh(config)
         return config
 
-    def resolve_for_authentication(
-        self, tenant_id: UUID
-    ) -> OIDCRuntimeConfiguration:
+    def resolve_for_authentication(self, tenant_id: UUID) -> OIDCRuntimeConfiguration:
         config = self.get(tenant_id)
         if config is None or not config.enabled:
             raise OIDCConfigurationError("SSO is not configured for this tenant.")
@@ -118,9 +115,8 @@ class TenantSSOService:
         payload: TenantSSOConfigUpdate,
     ) -> TenantSSOConfig:
         existing = self.repository.get_by_tenant_id(tenant_id)
-        if (
-            not payload.client_secret
-            and (existing is None or not existing.client_secret_encrypted)
+        if not payload.client_secret and (
+            existing is None or not existing.client_secret_encrypted
         ):
             raise OIDCConfigurationError(
                 "Client secret is required for initial SSO configuration."
@@ -199,7 +195,9 @@ class TenantSSOService:
     def test_configuration(self, tenant_id: UUID) -> TenantSSOTestResponse:
         config = self.get(tenant_id)
         if config is None:
-            raise OIDCConfigurationError("Save the SSO configuration before testing it.")
+            raise OIDCConfigurationError(
+                "Save the SSO configuration before testing it."
+            )
         required = {
             "issuer URL": config.issuer_url,
             "client ID": config.client_id,

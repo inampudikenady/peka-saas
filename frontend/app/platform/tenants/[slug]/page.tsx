@@ -57,6 +57,7 @@ export default function TenantDetailPage() {
             <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
               <Detail label="Display name" value={tenant.display_name} />
               <Detail label="Slug" value={tenant.slug} />
+              <Detail label="Tenant ID" value={tenant.id} />
               <Detail label="Platform hostname" value={tenant.subdomain} />
               <Detail label="Timezone" value={tenant.timezone} />
               <Detail label="Created" value={formatDateTime(tenant.created_at, tenant.timezone)} />
@@ -72,7 +73,7 @@ export default function TenantDetailPage() {
           <CardContent>
             <dl className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
               <Detail label="Initial administrator" value={invite ? `${invite.full_name} · ${invite.email}` : "Not available"} />
-              <Detail label="Invitation status" value={invite ? <StatusBadge status={invite.status} /> : "Not available"} />
+              <Detail label="Initial administrator invitation status" value={invite ? <StatusBadge status={invite.status} /> : "Not available"} />
               <Detail label="Invitation expiry" value={invite ? formatDateTime(invite.expires_at, tenant.timezone) : "Not available"} />
               <Detail label="SSO" value={<StatusBadge status={summary?.sso_enabled ? "Enabled" : "Disabled"} />} />
               <Detail label="Local administrator" value={summary?.local_admin_active ? "Active" : "Not active"} />

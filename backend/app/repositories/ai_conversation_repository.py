@@ -29,8 +29,12 @@ class AIConversationRepository:
         return entity
 
     def owned(
-        self, tenant_id: UUID, user_id: UUID, conversation_id: UUID,
-        *, include_deleted: bool = False,
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        conversation_id: UUID,
+        *,
+        include_deleted: bool = False,
     ) -> AIConversation | None:
         query = select(AIConversation).where(
             AIConversation.id == conversation_id,
@@ -42,7 +46,12 @@ class AIConversationRepository:
         return self.session.scalar(query)
 
     def list_owned(
-        self, tenant_id: UUID, user_id: UUID, *, limit: int, offset: int,
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        *,
+        limit: int,
+        offset: int,
         archived: bool | None,
     ) -> tuple[list[AIConversation], int]:
         filters = [
@@ -52,50 +61,68 @@ class AIConversationRepository:
         ]
         if archived is not None:
             filters.append(AIConversation.is_archived.is_(archived))
-        total = self.session.scalar(
-            select(func.count()).select_from(AIConversation).where(*filters)
-        ) or 0
-        items = list(self.session.scalars(
-            select(AIConversation).where(*filters)
-            .order_by(AIConversation.last_message_at.desc(), AIConversation.id.desc())
-            .offset(offset).limit(limit)
-        ).all())
+        total = (
+            self.session.scalar(
+                select(func.count()).select_from(AIConversation).where(*filters)
+            )
+            or 0
+        )
+        items = list(
+            self.session.scalars(
+                select(AIConversation)
+                .where(*filters)
+                .order_by(
+                    AIConversation.last_message_at.desc(), AIConversation.id.desc()
+                )
+                .offset(offset)
+                .limit(limit)
+            ).all()
+        )
         return items, total
 
     def messages(
         self, tenant_id: UUID, user_id: UUID, conversation_id: UUID
     ) -> list[AIConversationMessage]:
-        return list(self.session.scalars(
-            select(AIConversationMessage).where(
-                AIConversationMessage.tenant_id == tenant_id,
-                AIConversationMessage.user_id == user_id,
-                AIConversationMessage.conversation_id == conversation_id,
-            ).order_by(AIConversationMessage.created_at, AIConversationMessage.id)
-        ).all())
+        return list(
+            self.session.scalars(
+                select(AIConversationMessage)
+                .where(
+                    AIConversationMessage.tenant_id == tenant_id,
+                    AIConversationMessage.user_id == user_id,
+                    AIConversationMessage.conversation_id == conversation_id,
+                )
+                .order_by(AIConversationMessage.created_at, AIConversationMessage.id)
+            ).all()
+        )
 
     def last_preview(
         self, tenant_id: UUID, user_id: UUID, conversation_id: UUID
     ) -> str | None:
         return self.session.scalar(
-            select(AIConversationMessage.content).where(
+            select(AIConversationMessage.content)
+            .where(
                 AIConversationMessage.tenant_id == tenant_id,
                 AIConversationMessage.user_id == user_id,
                 AIConversationMessage.conversation_id == conversation_id,
-            ).order_by(
+            )
+            .order_by(
                 AIConversationMessage.created_at.desc(),
                 AIConversationMessage.id.desc(),
-            ).limit(1)
+            )
+            .limit(1)
         )
 
     def fail_stale(self, tenant_id: UUID, user_id: UUID) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(minutes=15)
         result = self.session.execute(
-            update(AIConversationMessage).where(
+            update(AIConversationMessage)
+            .where(
                 AIConversationMessage.tenant_id == tenant_id,
                 AIConversationMessage.user_id == user_id,
                 AIConversationMessage.status == AIMessageStatus.STREAMING,
                 AIConversationMessage.created_at < cutoff,
-            ).values(
+            )
+            .values(
                 status=AIMessageStatus.FAILED,
                 completed_at=datetime.now(timezone.utc),
                 failure_metadata={"code": "INTERRUPTED"},
@@ -110,18 +137,25 @@ class AIConversationRepository:
     def has_active_generation(
         self, tenant_id: UUID, user_id: UUID, conversation_id: UUID
     ) -> bool:
-        return self.session.scalar(
-            select(AIConversationMessage.id).where(
-                AIConversationMessage.tenant_id == tenant_id,
-                AIConversationMessage.user_id == user_id,
-                AIConversationMessage.conversation_id == conversation_id,
-                AIConversationMessage.role == AIMessageRole.ASSISTANT,
-                AIConversationMessage.status == AIMessageStatus.STREAMING,
-            ).limit(1)
-        ) is not None
+        return (
+            self.session.scalar(
+                select(AIConversationMessage.id)
+                .where(
+                    AIConversationMessage.tenant_id == tenant_id,
+                    AIConversationMessage.user_id == user_id,
+                    AIConversationMessage.conversation_id == conversation_id,
+                    AIConversationMessage.role == AIMessageRole.ASSISTANT,
+                    AIConversationMessage.status == AIMessageStatus.STREAMING,
+                )
+                .limit(1)
+            )
+            is not None
+        )
 
     def create_pair(
-        self, conversation: AIConversation, user_message: AIConversationMessage,
+        self,
+        conversation: AIConversation,
+        user_message: AIConversationMessage,
         assistant_message: AIConversationMessage,
     ) -> None:
         self.add(conversation)
@@ -135,8 +169,10 @@ class AIConversationRepository:
     def message_owned(
         self, tenant_id: UUID, user_id: UUID, message_id: UUID
     ) -> AIConversationMessage | None:
-        return self.session.scalar(select(AIConversationMessage).where(
-            AIConversationMessage.id == message_id,
-            AIConversationMessage.tenant_id == tenant_id,
-            AIConversationMessage.user_id == user_id,
-        ))
+        return self.session.scalar(
+            select(AIConversationMessage).where(
+                AIConversationMessage.id == message_id,
+                AIConversationMessage.tenant_id == tenant_id,
+                AIConversationMessage.user_id == user_id,
+            )
+        )

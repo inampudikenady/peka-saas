@@ -138,9 +138,7 @@ def delete_tenant(
 def get_tenant_admin_invite(
     slug: str,
     service: TenantService = Depends(get_tenant_service),
-    invite_service: TenantAdminInviteService = Depends(
-        get_tenant_admin_invite_service
-    ),
+    invite_service: TenantAdminInviteService = Depends(get_tenant_admin_invite_service),
     current_admin: PlatformAdmin = Depends(allow_platform_user),
 ):
     return invite_service.get_status(service.get_by_slug_or_raise(slug))
@@ -180,7 +178,8 @@ def list_tenant_administrators(
 ):
     tenant = service.get_by_slug_or_raise(slug)
     return [
-        user for user in TenantUserRepository(db).list_for_tenant(tenant.id)
+        user
+        for user in TenantUserRepository(db).list_for_tenant(tenant.id)
         if user.role == TenantUserRole.TENANT_ADMIN
     ]
 
@@ -226,9 +225,7 @@ def list_tenant_audit_events(
 def regenerate_tenant_admin_invite(
     slug: str,
     service: TenantService = Depends(get_tenant_service),
-    invite_service: TenantAdminInviteService = Depends(
-        get_tenant_admin_invite_service
-    ),
+    invite_service: TenantAdminInviteService = Depends(get_tenant_admin_invite_service),
     current_admin: PlatformAdmin = Depends(require_platform_admin),
 ):
     try:

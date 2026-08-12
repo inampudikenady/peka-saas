@@ -46,9 +46,14 @@ def resolve_tenant(db: Session, tenant_slug: str) -> Tenant | None:
 
 def connector_data_counts(db: Session, tenant_id: UUID) -> ConnectorDataCounts:
     def count(model: Any) -> int:
-        return db.scalar(
-            select(func.count()).select_from(model).where(model.tenant_id == tenant_id)
-        ) or 0
+        return (
+            db.scalar(
+                select(func.count())
+                .select_from(model)
+                .where(model.tenant_id == tenant_id)
+            )
+            or 0
+        )
 
     return ConnectorDataCounts(
         managed_connectors=count(ManagedConnector),
@@ -102,7 +107,9 @@ def build_parser() -> argparse.ArgumentParser:
         description="Delete all connector data for one tenant without deleting the tenant."
     )
     parser.add_argument("--tenant", required=True, help="Exact tenant slug")
-    parser.add_argument("--yes", action="store_true", help="Skip the interactive confirmation")
+    parser.add_argument(
+        "--yes", action="store_true", help="Skip the interactive confirmation"
+    )
     parser.add_argument(
         "--allow-production",
         action="store_true",
@@ -115,9 +122,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     environment = settings.environment.strip().lower()
     if environment in PRODUCTION_ENVIRONMENTS and not args.allow_production:
-        print(
-            "Refusing connector cleanup in production without --allow-production."
-        )
+        print("Refusing connector cleanup in production without --allow-production.")
         return 2
 
     db = SessionLocal()

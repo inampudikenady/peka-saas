@@ -40,7 +40,9 @@ class TenantAdminInviteRepository(BaseRepository[TenantAdminInvite]):
         )
         return self.db.scalar(stmt)
 
-    def get_unused_for_user(self, user_id: UUID, purpose: TenantInvitePurpose) -> list[TenantAdminInvite]:
+    def get_unused_for_user(
+        self, user_id: UUID, purpose: TenantInvitePurpose
+    ) -> list[TenantAdminInvite]:
         stmt = select(TenantAdminInvite).where(
             TenantAdminInvite.user_id == user_id,
             TenantAdminInvite.purpose == purpose,

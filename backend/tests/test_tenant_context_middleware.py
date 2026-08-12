@@ -1,12 +1,17 @@
+import logging
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 
 from app.core.tenant_definition import TenantDefinition
 from app.core.logging import tenant_id_ctx
 from app.core.tenant_registry import TenantRegistry
-from app.middleware.tenant_context import TenantContextMiddleware
+from app.middleware.tenant_context import (
+    RequestTenancy,
+    TenantContextMiddleware,
+    classify_request_tenancy,
+)
 
 
 def build_app(mode: str) -> tuple[FastAPI, TenantDefinition]:
@@ -23,7 +28,9 @@ def build_app(mode: str) -> tuple[FastAPI, TenantDefinition]:
 
     @app.get("/api/v1/tenant/probe")
     def probe(request: Request) -> dict[str, str]:
-        context = request.state.tenant_context
+        context = getattr(request.state, "tenant_context", None)
+        if context is None:
+            raise HTTPException(status_code=404, detail="Tenant could not be resolved.")
         return {
             "slug": context.slug,
             "tenant_id": str(request.state.tenant_id),
@@ -31,6 +38,14 @@ def build_app(mode: str) -> tuple[FastAPI, TenantDefinition]:
             "path": request.scope["path"],
             "query": request.url.query,
         }
+
+    @app.get("/health")
+    def health() -> dict[str, str]:
+        return {"status": "ok"}
+
+    @app.get("/api/v1/platform/probe")
+    def platform_probe() -> dict[str, str]:
+        return {"status": "ok"}
 
     app.add_middleware(
         TenantContextMiddleware,
@@ -76,6 +91,54 @@ def test_hostname_mode_remains_unchanged() -> None:
     assert response.status_code == 200
     assert response.json()["slug"] == definition.slug
     assert response.json()["path"] == "/api/v1/tenant/probe"
+
+
+def test_unknown_hostname_on_tenant_route_still_warns(caplog) -> None:
+    app, _ = build_app("subdomain")
+    caplog.set_level(logging.WARNING, logger="app.middleware.tenant_context")
+
+    response = TestClient(app).get(
+        "/api/v1/tenant/probe",
+        headers={"host": "unknown.peka.example"},
+    )
+
+    assert response.status_code == 404
+    assert "No tenant found for host 'unknown.peka.example'" in caplog.text
+
+
+def test_health_and_platform_routes_do_not_resolve_tenant_host(caplog) -> None:
+    app, _ = build_app("subdomain")
+    client = TestClient(app)
+    caplog.set_level(logging.WARNING, logger="app.middleware.tenant_context")
+
+    health = client.get("/health", headers={"host": "localhost:8000"})
+    platform = client.get(
+        "/api/v1/platform/probe",
+        headers={"host": "127.0.0.1:8000"},
+    )
+
+    assert health.status_code == 200
+    assert platform.status_code == 200
+    assert "No tenant found for host" not in caplog.text
+
+
+def test_request_tenancy_classification_has_explicit_route_boundaries() -> None:
+    connector_id = "7c540c00-5fb5-4fec-87ee-1b43e6c0cdac"
+    connector_paths = (
+        "/api/v1/connectors/register",
+        f"/api/v1/connectors/{connector_id}/heartbeat",
+        f"/api/v1/connectors/{connector_id}/documents",
+        f"/api/v1/connectors/{connector_id}/documents/status",
+        f"/api/v1/connectors/{connector_id}/reconciliation",
+        f"/api/v1/connectors/{connector_id}/operational-tools/requests/next",
+        f"/api/v1/connectors/{connector_id}/operational-tools/requests/request-id/result",
+    )
+
+    assert classify_request_tenancy(connector_paths[0]) is RequestTenancy.CONNECTOR_REGISTRATION
+    for path in connector_paths[1:]:
+        assert classify_request_tenancy(path) is RequestTenancy.CONNECTOR_AUTHENTICATED
+    assert classify_request_tenancy("/api/v1/connectors-internal") is RequestTenancy.TENANT_HOST
+    assert classify_request_tenancy("/healthcheck") is RequestTenancy.TENANT_HOST
 
 
 def test_hostname_mode_does_not_strip_path_prefix() -> None:

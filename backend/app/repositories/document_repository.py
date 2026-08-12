@@ -57,7 +57,9 @@ class DocumentRepository:
 
     def get_document(self, tenant_id: UUID, document_id: UUID) -> Document | None:
         return self.session.scalar(
-            select(Document).where(Document.tenant_id == tenant_id, Document.id == document_id)
+            select(Document).where(
+                Document.tenant_id == tenant_id, Document.id == document_id
+            )
         )
 
     def get_document_for_update(
@@ -109,11 +111,17 @@ class DocumentRepository:
                 return None
         return record
 
-    def list_documents(self, tenant_id: UUID, include_deleted: bool = False) -> list[Document]:
-        query: Select[tuple[Document]] = select(Document).where(Document.tenant_id == tenant_id)
+    def list_documents(
+        self, tenant_id: UUID, include_deleted: bool = False
+    ) -> list[Document]:
+        query: Select[tuple[Document]] = select(Document).where(
+            Document.tenant_id == tenant_id
+        )
         if not include_deleted:
             query = query.where(Document.is_deleted.is_(False))
-        return list(self.session.scalars(query.order_by(Document.updated_at.desc())).all())
+        return list(
+            self.session.scalars(query.order_by(Document.updated_at.desc())).all()
+        )
 
     def list_indexed_document_titles(
         self, tenant_id: UUID, limit: int = 4
@@ -142,7 +150,9 @@ class DocumentRepository:
         )
         return list(self.session.scalars(query).all())
 
-    def list_versions(self, tenant_id: UUID, document_id: UUID) -> list[DocumentVersion]:
+    def list_versions(
+        self, tenant_id: UUID, document_id: UUID
+    ) -> list[DocumentVersion]:
         return list(
             self.session.scalars(
                 select(DocumentVersion)
@@ -169,12 +179,16 @@ class DocumentRepository:
     def list_parsed_sections(
         self, tenant_id: UUID, version_id: UUID
     ) -> list[DocumentParsedSection]:
-        return list(self.session.scalars(
-            select(DocumentParsedSection).where(
-                DocumentParsedSection.tenant_id == tenant_id,
-                DocumentParsedSection.version_id == version_id,
-            ).order_by(DocumentParsedSection.section_index)
-        ).all())
+        return list(
+            self.session.scalars(
+                select(DocumentParsedSection)
+                .where(
+                    DocumentParsedSection.tenant_id == tenant_id,
+                    DocumentParsedSection.version_id == version_id,
+                )
+                .order_by(DocumentParsedSection.section_index)
+            ).all()
+        )
 
     def enqueue_job(
         self,
@@ -185,8 +199,10 @@ class DocumentRepository:
         correlation_id: str | None = None,
     ) -> IngestionJob:
         active_states = [
-            IngestionJobState.PENDING, IngestionJobState.IN_PROGRESS,
-            IngestionJobState.FAILED_RETRYABLE, IngestionJobState.RUNNING,
+            IngestionJobState.PENDING,
+            IngestionJobState.IN_PROGRESS,
+            IngestionJobState.FAILED_RETRYABLE,
+            IngestionJobState.RUNNING,
             IngestionJobState.RETRY,
         ]
         if job_type == IngestionJobType.DELETE_FROM_INDEX:
@@ -194,16 +210,23 @@ class DocumentRepository:
             if existing is not None:
                 return existing
         elif version_id is not None:
-            existing = self.session.scalar(select(IngestionJob).where(
-                IngestionJob.version_id == version_id,
-                IngestionJob.job_type == job_type,
-                IngestionJob.state.in_(active_states),
-            ).order_by(IngestionJob.created_at))
+            existing = self.session.scalar(
+                select(IngestionJob)
+                .where(
+                    IngestionJob.version_id == version_id,
+                    IngestionJob.job_type == job_type,
+                    IngestionJob.state.in_(active_states),
+                )
+                .order_by(IngestionJob.created_at)
+            )
             if existing is not None:
                 return existing
         job = IngestionJob(
-            tenant_id=tenant_id, document_id=document_id, version_id=version_id,
-            job_type=job_type, state=IngestionJobState.PENDING,
+            tenant_id=tenant_id,
+            document_id=document_id,
+            version_id=version_id,
+            job_type=job_type,
+            state=IngestionJobState.PENDING,
             correlation_id=correlation_id,
             max_attempts=settings.peka_ingestion_job_max_attempts,
         )
@@ -271,26 +294,38 @@ class DocumentRepository:
 
     def recover_stale_jobs(self, stale_after: timedelta) -> int:
         threshold = datetime.now(timezone.utc) - stale_after
-        jobs = list(self.session.scalars(select(IngestionJob).where(
-            IngestionJob.state.in_([IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]),
-            IngestionJob.locked_at < threshold,
-        )).all())
+        jobs = list(
+            self.session.scalars(
+                select(IngestionJob).where(
+                    IngestionJob.state.in_(
+                        [IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]
+                    ),
+                    IngestionJob.locked_at < threshold,
+                )
+            ).all()
+        )
         for job in jobs:
             job.state = IngestionJobState.FAILED_RETRYABLE
             job.next_retry_at = datetime.now(timezone.utc)
-            job.locked_at = None; job.locked_by = None
+            job.locked_at = None
+            job.locked_by = None
             job.error_code = "STALE_LOCK_RECOVERED"
             job.safe_error_message = "A stale worker lock was recovered."
-        if jobs: self.session.commit()
+        if jobs:
+            self.session.commit()
         return len(jobs)
 
     def recover_orphaned_jobs_after_lock_handoff(self) -> int:
         """Recover all running jobs once this process owns the exclusive lock."""
-        jobs = list(self.session.scalars(select(IngestionJob).where(
-            IngestionJob.state.in_(
-                [IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]
-            )
-        )).all())
+        jobs = list(
+            self.session.scalars(
+                select(IngestionJob).where(
+                    IngestionJob.state.in_(
+                        [IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]
+                    )
+                )
+            ).all()
+        )
         now = datetime.now(timezone.utc)
         for job in jobs:
             job.state = IngestionJobState.FAILED_RETRYABLE
@@ -307,17 +342,22 @@ class DocumentRepository:
         self, worker_id: str, status: str, current_job_id: UUID | None = None
     ) -> None:
         now = datetime.now(timezone.utc)
-        heartbeat = self.session.scalar(select(IngestionWorkerHeartbeat).where(
-            IngestionWorkerHeartbeat.worker_id == worker_id
-        ))
+        heartbeat = self.session.scalar(
+            select(IngestionWorkerHeartbeat).where(
+                IngestionWorkerHeartbeat.worker_id == worker_id
+            )
+        )
         if heartbeat is None:
             heartbeat = IngestionWorkerHeartbeat(
-                worker_id=worker_id, last_seen_at=now, status=status,
+                worker_id=worker_id,
+                last_seen_at=now,
+                status=status,
                 current_job_id=current_job_id,
             )
             self.add(heartbeat)
         else:
-            heartbeat.last_seen_at = now; heartbeat.status = status
+            heartbeat.last_seen_at = now
+            heartbeat.status = status
             heartbeat.current_job_id = current_job_id
         self.session.commit()
 
@@ -326,11 +366,17 @@ class DocumentRepository:
         job = self.session.scalar(
             select(IngestionJob)
             .where(
-                IngestionJob.state.in_([
-                    IngestionJobState.PENDING, IngestionJobState.FAILED_RETRYABLE,
-                    IngestionJobState.RETRY,
-                ]),
-                or_(IngestionJob.next_retry_at.is_(None), IngestionJob.next_retry_at <= now),
+                IngestionJob.state.in_(
+                    [
+                        IngestionJobState.PENDING,
+                        IngestionJobState.FAILED_RETRYABLE,
+                        IngestionJobState.RETRY,
+                    ]
+                ),
+                or_(
+                    IngestionJob.next_retry_at.is_(None),
+                    IngestionJob.next_retry_at <= now,
+                ),
             )
             .order_by(IngestionJob.created_at)
             .with_for_update(skip_locked=True)

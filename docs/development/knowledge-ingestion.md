@@ -1,7 +1,12 @@
 # Local knowledge-ingestion runtime
 
-PEKA runs the SaaS backend (including ingestion), PostgreSQL, Ollama, and
-frontend natively. Only Qdrant is containerized for local development. The pipeline is:
+> Historical migration/rollback reference only. The normal SaaS runtime no
+> longer starts document ingestion or connects to Qdrant. See
+> `docs/architecture/0010-customer-resident-knowledge-store.md`.
+
+PEKA runs the SaaS backend (including ingestion) and frontend as native
+processes. PostgreSQL, Qdrant, and Ollama are host-managed or externally
+managed dependencies. The pipeline is:
 
 `Connector → Document Service → object storage → worker → parser → chunks → embeddings → Qdrant → Knowledge Service`
 
@@ -44,9 +49,9 @@ removes that ambiguity.
 
 ## Start the native development stack
 
-Prerequisites are PostgreSQL 16, Python 3.13 with `backend/.venv` installed,
-Node.js 22 with frontend dependencies installed, Docker Desktop, and native
-Ollama for macOS.
+Prerequisites are PostgreSQL 16, Qdrant, Python 3.13 with `backend/.venv`
+installed, Node.js 22 with frontend dependencies installed, and native Ollama
+for macOS.
 
 Use one terminal per long-lived native application:
 
@@ -56,8 +61,8 @@ cp backend/.env.example backend/.env
 
 # Step 2: start the configured native PostgreSQL service
 
-# Step 3: Qdrant and prerequisite checks
-make knowledge-start
+# Step 3: start the configured native or external Qdrant service, then verify it
+curl --fail http://localhost:6333/healthz
 
 # Database schema
 (cd backend && DEBUG=false .venv/bin/alembic upgrade head)
@@ -92,19 +97,18 @@ use the same local file lock, so duplicate consumers cannot run.
 
 ## Qdrant
 
-`docker-compose.qdrant.yml` contains only pinned Qdrant
-`qdrant/qdrant:v1.14.1`, exposes HTTP 6333 and gRPC 6334, uses the persistent
-named volume `peka_qdrant_data`, and has a container health check.
+Qdrant is a native or externally managed dependency in normal development and
+production. Configure its host-reachable URL in `backend/.env`; PEKA does not
+start or supervise it.
 
 ```shell
-docker compose -f docker-compose.qdrant.yml up -d
-docker compose -f docker-compose.qdrant.yml down
-docker compose -f docker-compose.qdrant.yml restart
-docker compose -f docker-compose.qdrant.yml ps
-docker compose -f docker-compose.qdrant.yml logs -f qdrant
 curl --fail http://localhost:6333/healthz
 curl --fail http://localhost:6333/collections
 ```
+
+Docker may optionally provide a temporary Qdrant dependency during automated
+tests only. See [Testing](testing.md); that environment uses `tmpfs` and is
+always removed after the test command exits.
 
 At backend startup PEKA checks Qdrant, creates the configured collection,
 verifies its dimension, creates the required keyword payload indexes, and logs
@@ -149,14 +153,11 @@ checks its dimension. Fake embeddings are restricted to `ENVIRONMENT=test`.
 
 ```shell
 make knowledge-status
-make knowledge-logs
-make knowledge-restart
-make knowledge-stop
 ```
 
-`make knowledge-status` shows the Qdrant container, validates the configured
-embedding and Qdrant providers, reports database/object-store/worker state and
-queued jobs, and queries `/health/knowledge` when Uvicorn is reachable.
+`make knowledge-status` validates the configured embedding and Qdrant
+providers, reports database/object-store/worker state and queued jobs, and
+queries `/health/knowledge` when Uvicorn is reachable.
 
 `GET /health/knowledge` reports independently:
 
@@ -172,9 +173,9 @@ errors never include credentials or raw response bodies.
 Inspect the latest worker heartbeat and queued jobs directly:
 
 ```shell
-docker exec peka-saas-postgres psql -U peka -d peka_saas -c \
+psql "$DATABASE_URL" -c \
   "SELECT worker_id,status,last_seen_at,current_job_id FROM ingestion_worker_heartbeats ORDER BY last_seen_at DESC LIMIT 1"
-docker exec peka-saas-postgres psql -U peka -d peka_saas -c \
+psql "$DATABASE_URL" -c \
   "SELECT state,count(*) FROM ingestion_jobs GROUP BY state ORDER BY state"
 ```
 
@@ -234,8 +235,8 @@ the configured embedding dimension (or intentionally rebuilding the derived
 collection); never change dimensions against an existing collection silently.
 
 After Ollama downtime, restart `ollama serve`, validate embeddings, and press
-Retry; durable chunks are reused. After Qdrant downtime, run
-`make knowledge-restart`, wait for a healthy collection, and press Retry or
+Retry; durable chunks are reused. After Qdrant downtime, restart the
+host-managed Qdrant service, wait for a healthy collection, and press Retry or
 Re-index. These operations preserve document/version history.
 
 ## Troubleshooting

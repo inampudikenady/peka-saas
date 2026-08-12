@@ -111,9 +111,7 @@ def main() -> None:
             retrieval_body = retrieval.json()
             results["knowledge_retrieval"] = {
                 "result_count": len(retrieval_body["results"]),
-                "titles": sorted(
-                    {item["title"] for item in retrieval_body["results"]}
-                ),
+                "titles": sorted({item["title"] for item in retrieval_body["results"]}),
             }
             for question in questions:
                 print(f"validating synchronous answer: {question}", flush=True)
@@ -219,10 +217,12 @@ def main() -> None:
                 select(Document).where(Document.tenant_id != tenant.id).limit(1)
             )
             other_user = db.scalar(
-                select(TenantUser).where(
+                select(TenantUser)
+                .where(
                     TenantUser.tenant_id != tenant.id,
                     TenantUser.is_active.is_(True),
-                ).limit(1)
+                )
+                .limit(1)
             )
             auth_isolation: dict[str, Any]
             if other_user is not None:

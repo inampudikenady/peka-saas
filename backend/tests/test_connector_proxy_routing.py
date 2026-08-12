@@ -1,6 +1,5 @@
 from datetime import UTC, datetime, timedelta
-import json
-import hashlib
+import logging
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,6 +19,7 @@ from app.api.routes.connectors import (
 from app.api.tenant_context import get_current_tenant_context
 from app.core.tenant_context import TenantContext
 from app.core.tenant_definition import TenantDefinition
+from app.core.logging import connector_id_ctx, tenant_id_ctx
 from app.core.tenant_registry import TenantRegistry
 from app.db.base import Base
 from app.middleware.tenant_context import TenantContextMiddleware
@@ -91,6 +91,17 @@ def proxy_app(monkeypatch, tmp_path):
     def tenant_probe(context: TenantContext = Depends(get_current_tenant_context)):
         return {"tenant_id": str(context.tenant_id)}
 
+    @app.middleware("http")
+    async def expose_bound_connector_context(request, call_next):
+        response = await call_next(request)
+        tenant_id = getattr(request.state, "tenant_id", None)
+        connector_id = getattr(request.state, "connector_id", None)
+        if tenant_id is not None:
+            response.headers["X-Test-Context-Tenant"] = str(tenant_id)
+        if connector_id is not None:
+            response.headers["X-Test-Context-Connector"] = str(connector_id)
+        return response
+
     app.dependency_overrides[get_connector_service] = lambda: service
     app.dependency_overrides[get_db] = lambda: db
     monkeypatch.setattr("app.api.routes.connectors.settings.peka_object_storage_local_root", str(tmp_path))
@@ -117,7 +128,9 @@ def registration_body(raw_token: str, *, instance_id: UUID | None = None) -> dic
     }
 
 
-def test_operational_tool_claim_requires_connector_auth_and_consumes_claim(proxy_app):
+def test_operational_tool_claim_requires_connector_auth_and_consumes_claim(
+    proxy_app, caplog
+):
     client, connector_service, tenant, _, admin = proxy_app
     body = registration_body(create_token(connector_service, tenant, admin))
     body["capabilities"].append("operational_tools")
@@ -152,9 +165,12 @@ def test_operational_tool_claim_requires_connector_auth_and_consumes_claim(proxy
         "Authorization": f"Bearer {registered.connector_secret}",
         "X-PEKA-Connector-ID": str(registered.connector_id),
     }
-    claimed = client.get(path, headers=headers)
+    caplog.set_level("WARNING", logger="app.middleware.tenant_context")
+    caplog.clear()
+    claimed = client.get(path, headers={**headers, "host": "127.0.0.1:8000"})
     assert claimed.status_code == 200
     assert claimed.json()["tool_name"] == "count_assets"
+    assert "No tenant found for host" not in caplog.text
     result_path = (
         f"/api/v1/connectors/{registered.connector_id}"
         f"/operational-tools/requests/{request.id}/result"
@@ -168,222 +184,129 @@ def test_operational_tool_claim_requires_connector_auth_and_consumes_claim(proxy
     assert client.post(result_path, headers=headers, json=submission).status_code == 409
 
 
-def test_document_upload_succeeds_with_proxy_host_and_connector_identity(proxy_app, caplog):
-    import hashlib
+def test_empty_operational_tool_poll_is_tenant_neutral_and_binds_connector_tenant(
+    proxy_app, caplog, monkeypatch
+):
+    client, service, tenant, _, admin = proxy_app
+    body = registration_body(create_token(service, tenant, admin))
+    body["capabilities"].append("operational_tools")
+    registered = service.register(ConnectorRegistrationRequest.model_validate(body))
+    connector = service.repository.get(tenant.id, registered.connector_id)
+    connector.last_seen_at = datetime.now(UTC)
+    connector.status = ManagedConnectorStatus.CONNECTED
+    service.repository.commit()
 
+    observed: dict[str, str] = {}
+    original_claim = OperationalToolService.claim
+
+    def observed_claim(tool_service, authenticated_connector):
+        observed["tenant_id"] = tenant_id_ctx.get()
+        observed["connector_id"] = connector_id_ctx.get()
+        observed["record_tenant_id"] = str(authenticated_connector.tenant_id)
+        return original_claim(tool_service, authenticated_connector)
+
+    monkeypatch.setattr(OperationalToolService, "claim", observed_claim)
+    caplog.set_level(logging.WARNING, logger="app.middleware.tenant_context")
+    response = client.get(
+        f"/api/v1/connectors/{registered.connector_id}/operational-tools/requests/next",
+        headers={
+            "host": "127.0.0.1:8000",
+            "Authorization": f"Bearer {registered.connector_secret}",
+            "X-PEKA-Connector-ID": str(registered.connector_id),
+        },
+    )
+
+    assert response.status_code == 204
+    assert "No tenant found for host" not in caplog.text
+    assert response.headers["X-Test-Context-Tenant"] == str(tenant.id)
+    assert response.headers["X-Test-Context-Connector"] == str(registered.connector_id)
+    assert observed == {
+        "tenant_id": str(tenant.id),
+        "connector_id": str(registered.connector_id),
+        "record_tenant_id": str(tenant.id),
+    }
+
+
+def test_connector_cannot_claim_another_tenants_operational_request(proxy_app):
+    client, service, tenant_a, _, admin_a = proxy_app
+    tenant_b = Tenant(
+        slug="tenant-b",
+        name="Tenant B",
+        display_name="Tenant B",
+        status=TenantStatus.ACTIVE,
+        timezone="UTC",
+    )
+    service.repository.db.add(tenant_b)
+    service.repository.db.flush()
+    admin_b = TenantUser(
+        tenant_id=tenant_b.id,
+        username="admin-b",
+        email="admin@tenant-b.test",
+        full_name="Admin B",
+        auth_source=TenantUserAuthSource.LOCAL,
+        password_hash="unused",
+        is_active=True,
+        role=TenantUserRole.TENANT_ADMIN,
+    )
+    service.repository.db.add(admin_b)
+    service.repository.db.commit()
+
+    def register_for(tenant, admin):
+        body = registration_body(create_token(service, tenant, admin))
+        body["capabilities"].append("operational_tools")
+        registered = service.register(ConnectorRegistrationRequest.model_validate(body))
+        connector = service.repository.get(tenant.id, registered.connector_id)
+        connector.last_seen_at = datetime.now(UTC)
+        connector.status = ManagedConnectorStatus.CONNECTED
+        service.repository.commit()
+        return registered
+
+    connector_a = register_for(tenant_a, admin_a)
+    connector_b = register_for(tenant_b, admin_b)
+    pending = OperationalToolService(service.repository.db).create(
+        tenant_a.id, admin_a.id, "count_assets", {}
+    )
+    path_b = (
+        f"/api/v1/connectors/{connector_b.connector_id}"
+        "/operational-tools/requests/next"
+        f"?tenant_id={tenant_a.id}"
+    )
+    response_b = client.get(
+        path_b,
+        headers={
+            "Authorization": f"Bearer {connector_b.connector_secret}",
+            "X-PEKA-Connector-ID": str(connector_b.connector_id),
+            "X-Tenant-ID": str(tenant_a.id),
+        },
+    )
+    assert response_b.status_code == 204
+
+    response_a = client.get(
+        f"/api/v1/connectors/{connector_a.connector_id}/operational-tools/requests/next",
+        headers={
+            "Authorization": f"Bearer {connector_a.connector_secret}",
+            "X-PEKA-Connector-ID": str(connector_a.connector_id),
+        },
+    )
+    assert response_a.status_code == 200
+    assert response_a.json()["id"] == str(pending.id)
+
+
+def test_saas_connector_document_upload_route_is_removed(proxy_app):
     client, service, tenant, _, admin = proxy_app
     registered = service.register(ConnectorRegistrationRequest.model_validate(
         registration_body(create_token(service, tenant, admin))
     ))
-    content = b"Connector document content"
-    metadata = {
-        "source_id": "filesystem-main", "document_key": "manual.txt",
-        "relative_path": "manual.txt", "filename": "manual.txt", "mime_type": "text/plain",
-        "size_bytes": len(content), "content_hash": f"sha256:{hashlib.sha256(content).hexdigest()}",
-        "modified_at": datetime.now(UTC).isoformat(), "operation": "upsert",
-        "connector_version": "1.0.0",
-    }
     response = client.post(
         f"/api/v1/connectors/{registered.connector_id}/documents",
         headers={
-            "host": "backend.internal:8000", "Authorization": f"Bearer {registered.connector_secret}",
+            "Authorization": f"Bearer {registered.connector_secret}",
             "X-PEKA-Connector-ID": str(registered.connector_id), "Idempotency-Key": "proxy-upload-0001",
         },
-        data={"metadata": json.dumps(metadata)},
-        files={"file": ("manual.txt", content, "text/plain")},
+        data={"metadata": "{}"},
+        files={"file": ("manual.txt", b"must remain local", "text/plain")},
     )
-    assert response.status_code == 201
-    assert response.json()["accepted"] is True
-    assert "tenant_id" not in response.json()
-    assert registered.connector_secret not in caplog.text
-    assert content.decode() not in caplog.text
-
-
-@pytest.mark.parametrize(("filename", "mime_type"), [
-    ("notes.txt", "text/plain"),
-    ("readme.md", "text/markdown"),
-    ("inventory.csv", "text/csv"),
-    ("manual.pdf", "application/pdf"),
-    ("policy.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
-    ("assets.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
-])
-def test_connector_api_accepts_supported_document_formats(proxy_app, filename, mime_type):
-    client, service, tenant, _, admin = proxy_app
-    registered = _registered_document_connector(service, tenant, admin)
-    content = f"verified upload for {filename}".encode()
-    response = client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents",
-        headers={
-            "Authorization": f"Bearer {registered.connector_secret}",
-            "X-PEKA-Connector-ID": str(registered.connector_id),
-            "Idempotency-Key": f"format-{filename}",
-        },
-        data={"metadata": json.dumps(_document_metadata(
-            content, document_key=filename, relative_path=filename,
-            filename=filename, mime_type=mime_type,
-        ))},
-        files={"file": (filename, content, mime_type)},
-    )
-    assert response.status_code == 201
-    assert response.json()["content_hash"] == f"sha256:{hashlib.sha256(content).hexdigest()}"
-
-
-def _registered_document_connector(service, tenant, admin):
-    return service.register(ConnectorRegistrationRequest.model_validate(
-        registration_body(create_token(service, tenant, admin))
-    ))
-
-
-def _document_metadata(content: bytes, **overrides):
-    import hashlib
-
-    body = {
-        "source_id": "filesystem-main", "document_key": "manual.txt",
-        "relative_path": "manual.txt", "filename": "manual.txt", "mime_type": "text/plain",
-        "size_bytes": len(content), "content_hash": f"sha256:{hashlib.sha256(content).hexdigest()}",
-        "modified_at": datetime.now(UTC).isoformat(), "operation": "upsert",
-        "connector_version": "1.0.0",
-    }
-    body.update(overrides)
-    return body
-
-
-def _upload(client, registered, metadata, content=b"safe content", **headers):
-    return client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents",
-        headers={
-            "Authorization": f"Bearer {registered.connector_secret}",
-            "X-PEKA-Connector-ID": str(registered.connector_id),
-            "Idempotency-Key": f"document-{uuid4()}",
-            **headers,
-        },
-        data={"metadata": json.dumps(metadata)},
-        files={"file": (metadata.get("filename", "manual.txt"), content, "text/plain")},
-    )
-
-
-def test_document_upload_structured_security_errors(proxy_app):
-    client, service, tenant, _, admin = proxy_app
-    registered = _registered_document_connector(service, tenant, admin)
-    content = b"safe content"
-    metadata = _document_metadata(content)
-
-    invalid = client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents",
-        headers={"Authorization": "Bearer invalid", "X-PEKA-Connector-ID": str(registered.connector_id),
-                 "Idempotency-Key": "document-invalid-secret"},
-        data={"metadata": json.dumps(metadata)}, files={"file": ("manual.txt", content, "text/plain")},
-    )
-    assert invalid.status_code == 401
-    assert invalid.json() == {"code": "INVALID_CONNECTOR", "message": "Connector authentication failed."}
-
-    tenant_override = _upload(
-        client, registered, {**metadata, "tenant_id": str(uuid4())}, content,
-        host="backend.proxy.internal", **{"X-Forwarded-Host": "other-tenant.example"},
-    )
-    assert tenant_override.status_code == 422
-    assert tenant_override.json()["code"] == "INVALID_DOCUMENT_METADATA"
-
-    connector = service.repository.get(tenant.id, registered.connector_id)
-    connector.retired_at = datetime.now(UTC); service.repository.commit()
-    retired = _upload(client, registered, metadata, content)
-    assert retired.status_code == 403
-    assert retired.json()["code"] == "CONNECTOR_RETIRED"
-
-    connector.retired_at = None
-    connector.status = ManagedConnectorStatus.AUTHENTICATION_FAILED
-    service.repository.commit()
-    locked = _upload(client, registered, metadata, content)
-    assert locked.status_code == 403
-    assert locked.json()["code"] == "INVALID_CONNECTOR"
-
-
-def test_document_upload_reports_hash_size_mime_and_idempotency_conflicts(proxy_app):
-    client, service, tenant, _, admin = proxy_app
-    registered = _registered_document_connector(service, tenant, admin)
-    content = b"safe content"
-    headers = {
-        "Authorization": f"Bearer {registered.connector_secret}",
-        "X-PEKA-Connector-ID": str(registered.connector_id),
-        "Idempotency-Key": "document-stable-key",
-    }
-    metadata = _document_metadata(content)
-    first = client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents", headers=headers,
-        data={"metadata": json.dumps(metadata)}, files={"file": ("manual.txt", content, "text/plain")},
-    )
-    assert first.status_code == 201
-    replay = client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents", headers=headers,
-        data={"metadata": json.dumps(metadata)}, files={"file": ("manual.txt", content, "text/plain")},
-    )
-    assert replay.status_code == 201 and replay.json() == first.json()
-    conflict = client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents", headers=headers,
-        data={"metadata": json.dumps({**metadata, "filename": "changed.txt"})},
-        files={"file": ("changed.txt", content, "text/plain")},
-    )
-    assert conflict.status_code == 409 and conflict.json()["code"] == "IDEMPOTENCY_CONFLICT"
-    mismatch = _upload(client, registered, {**metadata, "size_bytes": len(content) + 1}, content)
-    assert mismatch.status_code == 422 and mismatch.json()["code"] == "SIZE_MISMATCH"
-    hash_mismatch = _upload(client, registered, {**metadata, "content_hash": "sha256:" + "0" * 64}, content)
-    assert hash_mismatch.status_code == 422 and hash_mismatch.json()["code"] == "HASH_MISMATCH"
-    mime_mismatch = _upload(client, registered, {**metadata, "mime_type": "application/pdf"}, content)
-    assert mime_mismatch.status_code == 422 and mime_mismatch.json()["code"] == "MIME_MISMATCH"
-
-
-def test_replacement_connector_can_tombstone_same_tenant_logical_document(proxy_app):
-    client, service, tenant, _, admin = proxy_app
-    owner = _registered_document_connector(service, tenant, admin)
-    other = _registered_document_connector(service, tenant, admin)
-    content = b"owned content"
-    metadata = _document_metadata(content)
-    assert _upload(client, owner, metadata, content).status_code == 201
-    tombstone = {**metadata, "operation": "delete", "size_bytes": 0,
-                 "content_hash": "sha256:" + hashlib.sha256(b"").hexdigest()}
-    response = client.post(
-        f"/api/v1/connectors/{other.connector_id}/documents",
-        headers={"Authorization": f"Bearer {other.connector_secret}",
-                 "X-PEKA-Connector-ID": str(other.connector_id),
-                 "Idempotency-Key": "other-delete-key"},
-        json=tombstone,
-    )
-    assert response.status_code == 201
-    assert response.json()["ingestion_status"] == "DELETE_RECEIVED"
-
-    connector_tombstone = {
-        **metadata, "operation": "delete", "content_hash": None, "modified_at": None
-    }
-    delete_headers = {
-        "Authorization": f"Bearer {owner.connector_secret}",
-        "X-PEKA-Connector-ID": str(owner.connector_id),
-        "Idempotency-Key": "owner-json-delete-key",
-    }
-    deleted = client.post(
-        f"/api/v1/connectors/{owner.connector_id}/documents",
-        headers=delete_headers, json=connector_tombstone,
-    )
-    replay = client.post(
-        f"/api/v1/connectors/{owner.connector_id}/documents",
-        headers=delete_headers, json=connector_tombstone,
-    )
-    assert deleted.status_code == 201
-    assert deleted.json()["ingestion_status"] == "DELETE_RECEIVED"
-    assert replay.json() == deleted.json()
-
-
-def test_malformed_document_multipart_returns_structured_error(proxy_app):
-    client, service, tenant, _, admin = proxy_app
-    registered = _registered_document_connector(service, tenant, admin)
-    response = client.post(
-        f"/api/v1/connectors/{registered.connector_id}/documents",
-        headers={"Authorization": f"Bearer {registered.connector_secret}",
-                 "X-PEKA-Connector-ID": str(registered.connector_id),
-                 "Idempotency-Key": "malformed-document-key"},
-        files={"file": ("manual.txt", b"missing metadata", "text/plain")},
-    )
-    assert response.status_code == 422
-    assert response.json()["code"] == "VALIDATION_FAILED"
+    assert response.status_code == 404
 
 
 def create_token(

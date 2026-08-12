@@ -66,7 +66,7 @@ function SidebarTooltip({
     <span
       id={id}
       role="tooltip"
-      className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded bg-slate-800 px-2 py-1 text-xs text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+      className="pointer-events-none absolute left-full top-1/2 z-50 ml-3 -translate-y-1/2 whitespace-nowrap rounded bg-peka-sidebar-hover px-2 py-1 text-xs text-peka-on-dark opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
     >
       {children}
     </span>
@@ -122,12 +122,12 @@ export function AppShell({
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-peka-app text-peka-text">
       <aside
         aria-label="Primary navigation"
         data-collapsed={collapsed}
         className={cn(
-          "fixed inset-y-0 left-0 z-30 flex flex-col bg-slate-950 text-white transition-[width,transform] duration-200 md:translate-x-0",
+          "fixed inset-y-0 left-0 z-30 flex flex-col border-r border-peka-sidebar-hover bg-peka-sidebar text-peka-on-dark transition-[width,transform] duration-200 md:translate-x-0",
           hasExtendedSidebar ? "w-72" : "w-64",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           collapsed
@@ -144,13 +144,13 @@ export function AppShell({
           )}
         >
           <div className="flex items-center gap-2 font-semibold">
-            <ShieldCheck className="shrink-0 text-blue-400" />
+            <ShieldCheck className="shrink-0 text-peka-info" />
             <span className={cn(collapsed && "md:sr-only")}>PEKA</span>
           </div>
           <button
             type="button"
             aria-label="Close navigation"
-            className="rounded p-1 text-slate-300 hover:bg-slate-800 md:hidden"
+            className="rounded p-1 text-peka-muted hover:bg-peka-sidebar-hover md:hidden"
             onClick={controls.closeMobile}
           >
             <X />
@@ -176,7 +176,7 @@ export function AppShell({
                   <div
                     key={item.label}
                     className={cn(
-                      "px-3 py-2 text-sm text-slate-500",
+                      "px-3 py-2 text-sm text-peka-muted",
                       collapsed && "md:text-center md:text-xs",
                     )}
                   >
@@ -194,8 +194,8 @@ export function AppShell({
                   href={item.href}
                   onClick={controls.closeMobile}
                   className={cn(
-                    "group relative flex items-center gap-3 rounded px-3 py-2 text-sm text-slate-300 hover:bg-slate-800",
-                    active(item.href) && "bg-slate-800 text-white",
+                    "group relative flex items-center gap-3 rounded-md px-3 py-2 text-sm text-peka-muted hover:bg-peka-sidebar-hover hover:text-peka-on-dark",
+                    active(item.href) && "bg-peka-sidebar-active text-peka-on-dark",
                     collapsed && "md:justify-center md:px-2",
                   )}
                 >
@@ -215,13 +215,13 @@ export function AppShell({
         </div>
 
         {collapsibleSidebar && (
-          <div className="hidden shrink-0 border-t border-slate-800 p-3 md:block">
+          <div className="hidden shrink-0 border-t border-peka-sidebar-hover p-3 md:block">
             <button
               type="button"
               aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
               aria-describedby={collapsed ? "sidebar-expand-tooltip" : undefined}
               className={cn(
-                "group relative flex w-full items-center gap-3 rounded px-3 py-2 text-sm text-slate-300 hover:bg-slate-800",
+                "group relative flex w-full items-center gap-3 rounded px-3 py-2 text-sm text-peka-muted hover:bg-peka-sidebar-hover hover:text-peka-on-dark",
                 collapsed && "justify-center px-2",
               )}
               onClick={toggleCollapsed}
@@ -261,19 +261,19 @@ export function AppShell({
               : "md:pl-64",
         )}
       >
-        <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b bg-white px-4 sm:px-8">
+        <header className="sticky top-0 z-10 flex h-header items-center justify-between border-b border-peka-border bg-peka-surface px-4 sm:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <button
               type="button"
               aria-label="Open navigation drawer"
-              className="rounded p-1 hover:bg-slate-100 md:hidden"
+              className="rounded p-1 hover:bg-peka-primary-subtle md:hidden"
               onClick={() => setMobileOpen(true)}
             >
               <Menu />
             </button>
             <div className="min-w-0">
               <h1 className="truncate font-semibold">{title}</h1>
-              <p className="truncate text-xs text-slate-500">{subtitle}</p>
+              <p className="truncate text-xs text-peka-secondary">{subtitle}</p>
             </div>
           </div>
           <ProfileMenu

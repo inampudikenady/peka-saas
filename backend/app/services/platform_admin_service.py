@@ -47,7 +47,9 @@ class PlatformAdminService:
         if not admin.is_active or admin.locked:
             return None
 
-        if not admin.password_hash or not verify_password(password, admin.password_hash):
+        if not admin.password_hash or not verify_password(
+            password, admin.password_hash
+        ):
             self.record_failed_login(admin)
             return None
 

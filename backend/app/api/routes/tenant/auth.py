@@ -30,6 +30,7 @@ from app.core.rate_limit import (
     tenant_password_reset_limiter,
 )
 from app.core.logging import request_id_ctx
+from app.core.identity import normalize_email
 from app.core.tenant_session import (
     clear_tenant_session_cookie,
     set_tenant_session_cookie,
@@ -51,7 +52,9 @@ from app.schemas.tenant_auth import (
     TenantResetPasswordRequest,
 )
 from app.schemas.tenant_sso import TenantSSOLoginOptions
-from app.services.tenant_account_activation_service import TenantAccountActivationService
+from app.services.tenant_account_activation_service import (
+    TenantAccountActivationService,
+)
 from app.services.oidc_authentication_service import OIDCAuthenticationService
 from app.services.oidc_authorization_service import OIDCAuthorizationService
 from app.services.oidc_user_service import OIDCUserService
@@ -62,7 +65,10 @@ from app.services.tenant_local_authentication_service import (
     TenantLocalAuthenticationService,
 )
 from app.services.tenant_sso_service import TenantSSOService
-from app.services.tenant_user_management_service import TenantUserManagementError, TenantUserManagementService
+from app.services.tenant_user_management_service import (
+    TenantUserManagementError,
+    TenantUserManagementService,
+)
 from app.services.tenant_password_reset_service import (
     TenantPasswordResetError,
     TenantPasswordResetService,
@@ -71,9 +77,7 @@ from app.services.tenant_password_reset_service import (
 
 router = APIRouter(prefix="/tenant/auth")
 logger = logging.getLogger(__name__)
-FORGOT_PASSWORD_MESSAGE = (
-    "If an active local account matches that email, a password reset link has been sent."
-)
+FORGOT_PASSWORD_MESSAGE = "If an active local account matches that email, a password reset link has been sent."
 
 
 @router.get("/sso-options", response_model=TenantSSOLoginOptions)
@@ -122,9 +126,7 @@ def login_with_sso(
         config=config,
         state=raw_state,
         nonce=auth_session.nonce,
-        code_challenge=auth_session_service.code_challenge(
-            auth_session.code_verifier
-        ),
+        code_challenge=auth_session_service.code_challenge(auth_session.code_verifier),
     )
 
     return RedirectResponse(authorization_url)
@@ -205,7 +207,7 @@ def forgot_password(
     db: Session = Depends(get_db),
 ) -> TenantForgotPasswordResponse:
     client = request.client.host if request.client else "unknown"
-    email_key = hashlib.sha256(payload.email.strip().lower().encode()).hexdigest()
+    email_key = hashlib.sha256(normalize_email(payload.email).encode()).hexdigest()
     if not tenant_password_reset_limiter.allow(
         f"{tenant_context.tenant_id}:{client}:{email_key}"
     ):
@@ -266,9 +268,7 @@ def oidc_callback(
     authentication_service: OIDCAuthenticationService = Depends(
         get_oidc_authentication_service
     ),
-    oidc_user_service: OIDCUserService = Depends(
-        get_oidc_user_service
-    ),
+    oidc_user_service: OIDCUserService = Depends(get_oidc_user_service),
 ):
     try:
         session = auth_session_service.validate(
@@ -304,9 +304,7 @@ def oidc_callback(
         )
 
     try:
-        config = sso_service.resolve_for_authentication(
-            tenant_context.tenant_id
-        )
+        config = sso_service.resolve_for_authentication(tenant_context.tenant_id)
         identity = authentication_service.authenticate(
             config=config,
             code=code,
@@ -329,6 +327,7 @@ def oidc_callback(
         user = oidc_user_service.provision(
             tenant_id=tenant_context.tenant_id,
             identity=identity,
+            tenant_slug=tenant_context.slug,
         )
     except OIDCUserAuthorizationError as exc:
         raise HTTPException(
@@ -381,7 +380,11 @@ def logout_tenant_user(
 
 
 @router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
-def change_tenant_password(payload: TenantChangePasswordRequest, user: TenantUser = Depends(get_current_tenant_user), service: TenantUserManagementService = Depends(get_tenant_user_management_service)) -> Response:
+def change_tenant_password(
+    payload: TenantChangePasswordRequest,
+    user: TenantUser = Depends(get_current_tenant_user),
+    service: TenantUserManagementService = Depends(get_tenant_user_management_service),
+) -> Response:
     try:
         service.change_password(user, payload.current_password, payload.new_password)
     except TenantUserManagementError as exc:

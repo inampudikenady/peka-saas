@@ -46,9 +46,7 @@ def _base(config: Settings) -> dict[str, Any]:
     }
 
 
-def chat_health(
-    config: Settings = settings, *, force: bool = False
-) -> dict[str, Any]:
+def chat_health(config: Settings = settings, *, force: bool = False) -> dict[str, Any]:
     base = _base(config)
     if config.peka_chat_provider == "disabled":
         return base
@@ -65,7 +63,10 @@ def chat_health(
             "connectivity": True,
             "reason": None,
         }
-    if config.peka_chat_provider != "openai-compatible" or not config.peka_chat_base_url:
+    if (
+        config.peka_chat_provider != "openai-compatible"
+        or not config.peka_chat_base_url
+    ):
         return {
             **base,
             "status": "not_configured",

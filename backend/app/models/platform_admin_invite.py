@@ -24,7 +24,9 @@ class PlatformAdminInvite(Entity):
         Enum(PlatformAdminInvitePurpose, name="platform_admin_invite_purpose")
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_by_platform_admin_id: Mapped[UUID] = mapped_column(
         ForeignKey("platform_admin_users.id", ondelete="CASCADE"), index=True
     )

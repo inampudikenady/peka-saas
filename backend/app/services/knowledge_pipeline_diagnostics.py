@@ -63,7 +63,8 @@ class KnowledgePipelineDiagnostics:
 
         version = (
             self.repository.get_version(tenant_id, document.current_version_id)
-            if document.current_version_id else None
+            if document.current_version_id
+            else None
         )
         object_exists = bool(version and self.storage.exists(version.object_key))
         if not object_exists:
@@ -71,18 +72,28 @@ class KnowledgePipelineDiagnostics:
         parsed_section_count = 0
         chunk_count = 0
         if version is not None:
-            parsed_section_count = int(self.repository.session.scalar(
-                select(func.count()).select_from(DocumentParsedSection).where(
-                    DocumentParsedSection.tenant_id == tenant_id,
-                    DocumentParsedSection.version_id == version.id,
+            parsed_section_count = int(
+                self.repository.session.scalar(
+                    select(func.count())
+                    .select_from(DocumentParsedSection)
+                    .where(
+                        DocumentParsedSection.tenant_id == tenant_id,
+                        DocumentParsedSection.version_id == version.id,
+                    )
                 )
-            ) or 0)
-            chunk_count = int(self.repository.session.scalar(
-                select(func.count()).select_from(DocumentChunk).where(
-                    DocumentChunk.tenant_id == tenant_id,
-                    DocumentChunk.version_id == version.id,
+                or 0
+            )
+            chunk_count = int(
+                self.repository.session.scalar(
+                    select(func.count())
+                    .select_from(DocumentChunk)
+                    .where(
+                        DocumentChunk.tenant_id == tenant_id,
+                        DocumentChunk.version_id == version.id,
+                    )
                 )
-            ) or 0)
+                or 0
+            )
         if parsed_section_count == 0:
             issues.append("No parsed sections exist.")
         if chunk_count == 0:
@@ -131,7 +142,9 @@ class KnowledgePipelineDiagnostics:
                     for result in response.results
                 )
                 if not expected_chunk_retrieved:
-                    issues.append("Knowledge Service did not retrieve the current version.")
+                    issues.append(
+                        "Knowledge Service did not retrieve the current version."
+                    )
             except Exception:
                 issues.append("Knowledge Service retrieval is unavailable.")
 

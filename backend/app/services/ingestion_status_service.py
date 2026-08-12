@@ -11,17 +11,42 @@ class IngestionStatusService:
     _allowed: dict[IngestionStatus, set[IngestionStatus]] = {
         IngestionStatus.RECEIVED: {IngestionStatus.PARSING, IngestionStatus.FAILED},
         IngestionStatus.PARSING: {IngestionStatus.PARSED, IngestionStatus.FAILED},
-        IngestionStatus.PARSED: {IngestionStatus.CHUNKING, IngestionStatus.PARSING, IngestionStatus.FAILED},
-        IngestionStatus.CHUNKING: {IngestionStatus.CHUNKED, IngestionStatus.FAILED},
-        IngestionStatus.CHUNKED: {IngestionStatus.EMBEDDING, IngestionStatus.PARSING, IngestionStatus.FAILED},
-        IngestionStatus.EMBEDDING: {IngestionStatus.INDEXING, IngestionStatus.CHUNKED, IngestionStatus.FAILED},
-        IngestionStatus.INDEXING: {IngestionStatus.INDEXED, IngestionStatus.CHUNKED, IngestionStatus.FAILED},
-        IngestionStatus.INDEXED: {
-            IngestionStatus.PARSING, IngestionStatus.EMBEDDING,
-            IngestionStatus.DELETE_PENDING, IngestionStatus.FAILED,
+        IngestionStatus.PARSED: {
+            IngestionStatus.CHUNKING,
+            IngestionStatus.PARSING,
+            IngestionStatus.FAILED,
         },
-        IngestionStatus.FAILED: {IngestionStatus.RECEIVED, IngestionStatus.PARSING, IngestionStatus.EMBEDDING},
-        IngestionStatus.DELETE_PENDING: {IngestionStatus.DELETED_FROM_INDEX, IngestionStatus.FAILED},
+        IngestionStatus.CHUNKING: {IngestionStatus.CHUNKED, IngestionStatus.FAILED},
+        IngestionStatus.CHUNKED: {
+            IngestionStatus.EMBEDDING,
+            IngestionStatus.PARSING,
+            IngestionStatus.FAILED,
+        },
+        IngestionStatus.EMBEDDING: {
+            IngestionStatus.INDEXING,
+            IngestionStatus.CHUNKED,
+            IngestionStatus.FAILED,
+        },
+        IngestionStatus.INDEXING: {
+            IngestionStatus.INDEXED,
+            IngestionStatus.CHUNKED,
+            IngestionStatus.FAILED,
+        },
+        IngestionStatus.INDEXED: {
+            IngestionStatus.PARSING,
+            IngestionStatus.EMBEDDING,
+            IngestionStatus.DELETE_PENDING,
+            IngestionStatus.FAILED,
+        },
+        IngestionStatus.FAILED: {
+            IngestionStatus.RECEIVED,
+            IngestionStatus.PARSING,
+            IngestionStatus.EMBEDDING,
+        },
+        IngestionStatus.DELETE_PENDING: {
+            IngestionStatus.DELETED_FROM_INDEX,
+            IngestionStatus.FAILED,
+        },
         IngestionStatus.DELETED_FROM_INDEX: {IngestionStatus.PARSING},
     }
 

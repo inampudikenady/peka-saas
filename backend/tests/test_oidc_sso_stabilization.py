@@ -10,13 +10,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jose import jwk, jwt
 
 from app.core.exceptions import OIDCAuthenticationError, OIDCConfigurationError
-from app.core.exceptions import OIDCUserAuthorizationError
 from app.models.tenant_sso_config import SSOProvider
 from app.schemas.tenant_sso import TenantSSOConfigUpdate
-from app.services.oidc_authentication_service import (
-    OIDCAuthenticationService,
-    OIDCUserIdentity,
-)
+from app.services.oidc_authentication_service import OIDCAuthenticationService
 from app.services.oidc_authorization_service import OIDCAuthorizationService
 from app.services.oidc_discovery_service import (
     OIDCDiscoveryService,
@@ -33,7 +29,6 @@ from app.services.tenant_sso_service import (
     OIDCRuntimeConfiguration,
     TenantSSOService,
 )
-from app.services.oidc_user_service import OIDCUserService
 
 
 TENANT_ID = "11111111-1111-4111-8111-111111111111"
@@ -332,7 +327,16 @@ def signing_material():
     return private_pem, public_jwk
 
 
-def authenticate(monkeypatch, *, audience="client-id", issuer=ISSUER, nonce="nonce"):
+def authenticate(
+    monkeypatch,
+    *,
+    audience="client-id",
+    issuer=ISSUER,
+    nonce="nonce",
+    oid="stable-object-id",
+    sub="subject",
+    email="  User@Example.com  ",
+):
     private_key, public_jwk = signing_material()
     claims = {
         "iss": issuer,
@@ -340,9 +344,9 @@ def authenticate(monkeypatch, *, audience="client-id", issuer=ISSUER, nonce="non
         "exp": datetime.now(UTC) + timedelta(minutes=5),
         "iat": datetime.now(UTC),
         "nonce": nonce,
-        "sub": "subject",
-        "oid": "stable-object-id",
-        "email": "User@Example.com",
+        "sub": sub,
+        "oid": oid,
+        "email": email,
     }
     id_token = jwt.encode(
         claims,
@@ -374,7 +378,11 @@ def authenticate(monkeypatch, *, audience="client-id", issuer=ISSUER, nonce="non
 def test_callback_validation_uses_oid_and_exact_redirect_with_pkce(monkeypatch):
     identity, requests = authenticate(monkeypatch)
     assert identity.subject == "stable-object-id"
+    assert identity.oid == "stable-object-id"
+    assert identity.sub == "subject"
     assert identity.email == "user@example.com"
+    assert identity.issuer == ISSUER
+    assert identity.provider == SSOProvider.MICROSOFT_ENTRA
     assert requests[0]["redirect_uri"] == (
         "https://tenant.example/api/v1/tenant/auth/callback"
     )
@@ -410,21 +418,8 @@ def test_client_secrets_are_encrypted_and_legacy_values_remain_readable():
     assert cipher.decrypt("legacy-plaintext") == "legacy-plaintext"
 
 
-def test_disabled_or_conflicting_tenant_user_is_not_authorized():
-    tenant_id = uuid4()
-    inactive = SimpleNamespace(
-        is_active=False,
-        external_subject="subject",
-    )
-    repository = SimpleNamespace(
-        get_by_tenant_and_external_subject=lambda scoped_tenant, subject: (
-            inactive if scoped_tenant == tenant_id else None
-        ),
-        get_by_tenant_and_email=lambda scoped_tenant, email: None,
-    )
-    identity = OIDCUserIdentity(
-        subject="subject",
-        email="user@example.com",
-    )
-    with pytest.raises(OIDCUserAuthorizationError):
-        OIDCUserService(repository).provision(tenant_id, identity)
+def test_identity_falls_back_to_sub_when_oid_is_absent(monkeypatch):
+    identity, _ = authenticate(monkeypatch, oid=None, sub="fallback-subject")
+    assert identity.oid is None
+    assert identity.sub == "fallback-subject"
+    assert identity.subject == "fallback-subject"

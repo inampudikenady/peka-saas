@@ -1,7 +1,10 @@
+@import "./peka-tokens.css";
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 * { box-sizing: border-box; }
-body { color: #18212f; background: #f8fafc; }
+body { color: var(--peka-text-primary); background: var(--peka-bg-app); font-family: var(--peka-font-sans); }
 button, a, input, select { -webkit-tap-highlight-color: transparent; }
+:focus-visible { outline: 2px solid var(--peka-focus-ring); outline-offset: 2px; }

@@ -10,7 +10,10 @@ from app.services.embedding_provider import (
 )
 from app.services.object_storage import LocalFilesystemObjectStorage, ObjectStorage
 from app.services.vector_store import (
-    DisabledVectorStore, InMemoryVectorStore, QdrantVectorStore, VectorStore,
+    DisabledVectorStore,
+    InMemoryVectorStore,
+    QdrantVectorStore,
+    VectorStore,
 )
 from app.services.llm_provider import (
     DeterministicFakeLLMProvider,
@@ -27,13 +30,18 @@ _test_vectors = InMemoryVectorStore()
 def object_storage(config: Settings = settings) -> ObjectStorage:
     if config.peka_object_storage_backend == "local":
         return LocalFilesystemObjectStorage(config.peka_object_storage_local_root)
-    raise RuntimeError(f"Unsupported object storage backend: {config.peka_object_storage_backend}")
+    raise RuntimeError(
+        f"Unsupported object storage backend: {config.peka_object_storage_backend}"
+    )
 
 
 def embedding_provider(config: Settings = settings) -> EmbeddingProvider:
     if config.peka_embedding_provider == "disabled":
         return DisabledEmbeddingProvider()
-    if config.peka_embedding_provider == "fake" and config.environment.lower() == "test":
+    if (
+        config.peka_embedding_provider == "fake"
+        and config.environment.lower() == "test"
+    ):
         return DeterministicFakeEmbeddingProvider(config.peka_embedding_dimension)
     if config.peka_embedding_provider == "fake":
         raise EmbeddingProviderNotConfigured(
@@ -43,9 +51,12 @@ def embedding_provider(config: Settings = settings) -> EmbeddingProvider:
         if not config.peka_embedding_base_url:
             raise EmbeddingProviderNotConfigured("Embedding URL is required")
         return OpenAICompatibleEmbeddingProvider(
-            config.peka_embedding_base_url, config.peka_embedding_api_key,
-            config.peka_embedding_model, config.peka_embedding_dimension,
-            config.peka_embedding_timeout_seconds, config.peka_embedding_batch_size,
+            config.peka_embedding_base_url,
+            config.peka_embedding_api_key,
+            config.peka_embedding_model,
+            config.peka_embedding_dimension,
+            config.peka_embedding_timeout_seconds,
+            config.peka_embedding_batch_size,
         )
     raise EmbeddingProviderNotConfigured("Document embedding provider is unsupported")
 
@@ -53,8 +64,10 @@ def embedding_provider(config: Settings = settings) -> EmbeddingProvider:
 def vector_store(config: Settings = settings) -> VectorStore:
     if config.peka_qdrant_url:
         return QdrantVectorStore(
-            config.peka_qdrant_url, config.peka_qdrant_collection,
-            config.peka_qdrant_api_key, config.peka_qdrant_timeout_seconds,
+            config.peka_qdrant_url,
+            config.peka_qdrant_collection,
+            config.peka_qdrant_api_key,
+            config.peka_qdrant_timeout_seconds,
             config.peka_qdrant_tls_verify,
         )
     if config.environment.lower() == "test":

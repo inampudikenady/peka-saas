@@ -25,7 +25,7 @@ def test_qdrant_startup_initialization_verifies_collection(monkeypatch):
     )
     config = Settings(
         debug=False,
-        peka_qdrant_url="http://qdrant:6333",
+        peka_qdrant_url="http://qdrant.test.invalid:6333",
         peka_embedding_dimension=384,
     )
     result = initialize_knowledge_dependencies(config)

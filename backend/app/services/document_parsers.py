@@ -65,7 +65,9 @@ def _markdown_sections(content: str) -> list[ParsedSection]:
 
 
 class TextParser:
-    def __init__(self, filename: str = "document.txt", mime_type: str | None = None) -> None:
+    def __init__(
+        self, filename: str = "document.txt", mime_type: str | None = None
+    ) -> None:
         self.filename = filename
         self.mime_type = mime_type
 
@@ -77,7 +79,11 @@ class TextParser:
             content = raw.decode("utf-8", errors="replace")
         content = content.replace("\r\n", "\n").replace("\r", "\n")
         detection = detect_text_format(self.filename, self.mime_type, content)
-        normalized = normalize_dokuwiki(content) if detection.detected_format == "dokuwiki" else content
+        normalized = (
+            normalize_dokuwiki(content)
+            if detection.detected_format == "dokuwiki"
+            else content
+        )
         sections = (
             _markdown_sections(normalized)
             if detection.detected_format in {"markdown", "dokuwiki"}
@@ -87,7 +93,9 @@ class TextParser:
             sections=sections,
             parser_name=detection.detected_format,
             parser_version="2",
-            title=next((item.section_title for item in sections if item.section_title), None),
+            title=next(
+                (item.section_title for item in sections if item.section_title), None
+            ),
             detected_format=detection.detected_format,
             detection_confidence=detection.confidence,
             detection_reason=detection.reason,
@@ -108,15 +116,21 @@ class CsvParser:
         rows = list(csv.reader(io.StringIO(text, newline="")))
         header = rows[0] if rows else []
         sections: list[ParsedSection] = []
-        for index, row in enumerate(rows[1:] if header else rows, start=2 if header else 1):
+        for index, row in enumerate(
+            rows[1:] if header else rows, start=2 if header else 1
+        ):
             values = [
                 f"{header[column]}: {value}" if column < len(header) else value
                 for column, value in enumerate(row)
             ]
-            sections.append(ParsedSection(
-                text="\n".join(values), row_start=index, row_end=index,
-                metadata={"headers": header},
-            ))
+            sections.append(
+                ParsedSection(
+                    text="\n".join(values),
+                    row_start=index,
+                    row_end=index,
+                    metadata={"headers": header},
+                )
+            )
         return ParsedDocument(sections, "csv", "1")
 
 
@@ -131,9 +145,19 @@ class PdfParser:
             ParsedSection(text=page.extract_text() or "", page_number=index)
             for index, page in enumerate(reader.pages, start=1)
         ]
-        if sections and sum(len(section.text.strip()) for section in sections) < len(sections) * 10:
-            raise ValueError("PDF appears scanned or contains insufficient extractable text")
-        title = str(reader.metadata.title) if reader.metadata and reader.metadata.title else None
+        if (
+            sections
+            and sum(len(section.text.strip()) for section in sections)
+            < len(sections) * 10
+        ):
+            raise ValueError(
+                "PDF appears scanned or contains insufficient extractable text"
+            )
+        title = (
+            str(reader.metadata.title)
+            if reader.metadata and reader.metadata.title
+            else None
+        )
         return ParsedDocument(sections, "pypdf", "1", title)
 
 
@@ -149,7 +173,9 @@ class DocxParser:
             style_name = paragraph.style.name if paragraph.style is not None else ""
             if style_name.startswith("Heading"):
                 if buffer:
-                    sections.append(ParsedSection(text="\n".join(buffer), section_title=title))
+                    sections.append(
+                        ParsedSection(text="\n".join(buffer), section_title=title)
+                    )
                     buffer = []
                 title = paragraph.text.strip() or None
             elif paragraph.text.strip():
@@ -159,9 +185,16 @@ class DocxParser:
         for table_index, table in enumerate(document.tables, start=1):
             rows = [" | ".join(cell.text for cell in row.cells) for row in table.rows]
             sections.append(
-                ParsedSection(text="\n".join(rows), section_title=f"Table {table_index}")
+                ParsedSection(
+                    text="\n".join(rows), section_title=f"Table {table_index}"
+                )
             )
-        return ParsedDocument(sections, "python-docx", "1", sections[0].section_title if sections else None)
+        return ParsedDocument(
+            sections,
+            "python-docx",
+            "1",
+            sections[0].section_title if sections else None,
+        )
 
 
 class XlsxParser:
@@ -171,7 +204,9 @@ class XlsxParser:
         workbook = load_workbook(stream, read_only=True, data_only=True)
         sections: list[ParsedSection] = []
         for sheet in workbook.worksheets:
-            for row_number, row in enumerate(sheet.iter_rows(values_only=True), start=1):
+            for row_number, row in enumerate(
+                sheet.iter_rows(values_only=True), start=1
+            ):
                 values = ["" if value is None else str(value) for value in row]
                 if any(values):
                     sections.append(
@@ -199,12 +234,13 @@ class ParserRegistry:
         try:
             return self._parsers[extension]
         except KeyError as exc:
-            raise ValueError(f"Unsupported document extension: {extension or '(none)'}") from exc
+            raise ValueError(
+                f"Unsupported document extension: {extension or '(none)'}"
+            ) from exc
 
     def availability(self) -> dict[str, bool]:
         return {
-            extension: True
-            for extension in sorted({".txt", ".md", *self._parsers})
+            extension: True for extension in sorted({".txt", ".md", *self._parsers})
         }
 
 

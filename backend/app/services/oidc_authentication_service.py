@@ -6,7 +6,9 @@ from jose import JWTError, jwt
 from pydantic import BaseModel
 
 from app.core.exceptions import OIDCAuthenticationError, OIDCConfigurationError
+from app.core.identity import normalize_email
 from app.core.logging import request_id_ctx
+from app.models.tenant_sso_config import SSOProvider
 from app.services.tenant_sso_service import OIDCRuntimeConfiguration
 
 
@@ -14,11 +16,23 @@ logger = logging.getLogger(__name__)
 
 
 class OIDCUserIdentity(BaseModel):
-    subject: str
+    oid: str | None = None
+    sub: str | None = None
     email: str
+    issuer: str
+    provider: SSOProvider
     display_name: str | None = None
     given_name: str | None = None
     family_name: str | None = None
+
+    @property
+    def subject(self) -> str:
+        subject = self.oid or self.sub
+        if (
+            subject is None
+        ):  # guarded during extraction; defensive for direct construction
+            raise ValueError("OIDC identity does not contain a subject.")
+        return subject
 
 
 class OIDCAuthenticationService:
@@ -145,13 +159,17 @@ class OIDCAuthenticationService:
                 "OIDC identity does not contain an email address."
             )
 
-        subject = claims.get("oid") or claims.get("sub")
-        if not subject:
+        oid = claims.get("oid")
+        sub = claims.get("sub")
+        if not oid and not sub:
             raise OIDCAuthenticationError("OIDC identity does not contain a subject.")
 
         return OIDCUserIdentity(
-            subject=subject,
-            email=email.lower(),
+            oid=oid,
+            sub=sub,
+            email=normalize_email(email),
+            issuer=config.issuer_url,
+            provider=config.provider,
             display_name=claims.get("name"),
             given_name=claims.get("given_name"),
             family_name=claims.get("family_name"),

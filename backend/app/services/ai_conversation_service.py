@@ -86,9 +86,12 @@ def normalize_conversation_preview(
 class ConversationContext:
     text: str
     message_ids: list[UUID]
+    operational_context: dict | None = None
 
 
-def deterministic_title(question: str, redactor: SecretRedactionService | None = None) -> str:
+def deterministic_title(
+    question: str, redactor: SecretRedactionService | None = None
+) -> str:
     safe = (redactor or SecretRedactionService()).redact(question).text
     title = " ".join(safe.split()).strip(" .?!")
     install = re.match(r"(?i)^how (?:do|can) i install\s+(.+)$", title)
@@ -130,7 +133,8 @@ class AIConversationService:
         conversation = AIConversation(
             tenant_id=tenant_id,
             user_id=user_id,
-            title=self.redactor.redact((title or "New chat").strip()).text or "New chat",
+            title=self.redactor.redact((title or "New chat").strip()).text
+            or "New chat",
             last_message_at=now,
         )
         self.repository.add(conversation)
@@ -138,7 +142,10 @@ class AIConversationService:
         return self.detail(tenant_id, user_id, conversation.id)
 
     def begin_message(
-        self, tenant_id: UUID, user_id: UUID, question: str,
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        question: str,
         conversation_id: UUID | None = None,
         context_message_ids: list[UUID] | None = None,
     ) -> tuple[AIConversation, AIConversationMessage]:
@@ -164,14 +171,21 @@ class AIConversationService:
             conversation.is_archived = False
         user_message = AIConversationMessage(
             conversation_id=conversation.id,
-            tenant_id=tenant_id, user_id=user_id, role=AIMessageRole.USER,
-            content=safe_question, status=AIMessageStatus.COMPLETED,
-            completed_at=now, created_at=now,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=AIMessageRole.USER,
+            content=safe_question,
+            status=AIMessageStatus.COMPLETED,
+            completed_at=now,
+            created_at=now,
         )
         assistant = AIConversationMessage(
             conversation_id=conversation.id,
-            tenant_id=tenant_id, user_id=user_id, role=AIMessageRole.ASSISTANT,
-            content="", status=AIMessageStatus.STREAMING,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            role=AIMessageRole.ASSISTANT,
+            content="",
+            status=AIMessageStatus.STREAMING,
             created_at=now + timedelta(microseconds=1),
             context_message_ids=[
                 str(message_id) for message_id in (context_message_ids or [])
@@ -195,9 +209,7 @@ class AIConversationService:
         conversation = self._owned(tenant_id, user_id, conversation_id)
         messages = [
             message
-            for message in self.repository.messages(
-                tenant_id, user_id, conversation.id
-            )
+            for message in self.repository.messages(tenant_id, user_id, conversation.id)
             if message.status == AIMessageStatus.COMPLETED and message.content
         ]
         selected: list[tuple[AIConversationMessage, str]] = []
@@ -217,15 +229,35 @@ class AIConversationService:
             selected.append((message, line))
             used_tokens += tokens
         selected.reverse()
+        operational_context = next(
+            (
+                message.retrieval_metadata.get("operational_context")
+                for message in reversed(messages)
+                if message.role == AIMessageRole.ASSISTANT
+                and isinstance(message.retrieval_metadata, dict)
+                and isinstance(
+                    message.retrieval_metadata.get("operational_context"), dict
+                )
+            ),
+            None,
+        )
         return ConversationContext(
             text="\n".join(line for _message, line in selected),
             message_ids=[message.id for message, _line in selected],
+            operational_context=operational_context,
         )
 
     def complete(
-        self, tenant_id: UUID, user_id: UUID, message_id: UUID, *,
-        content: str, citations: list[dict], retrieval: dict,
-        model: str | None, prompt_version: str | None,
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        message_id: UUID,
+        *,
+        content: str,
+        citations: list[dict],
+        retrieval: dict,
+        model: str | None,
+        prompt_version: str | None,
     ) -> None:
         message = self.repository.message_owned(tenant_id, user_id, message_id)
         if message is None:
@@ -237,8 +269,12 @@ class AIConversationService:
             categories = set(safe_citation.get("redaction_categories") or [])
             redacted = bool(safe_citation.get("sensitive_content_redacted"))
             for field in (
-                "excerpt", "title", "section_title", "sheet_name",
-                "source_system", "document_type",
+                "excerpt",
+                "title",
+                "section_title",
+                "sheet_name",
+                "source_system",
+                "document_type",
             ):
                 value = safe_citation.get(field)
                 if not isinstance(value, str):
@@ -260,8 +296,14 @@ class AIConversationService:
         self.repository.commit()
 
     def terminate(
-        self, tenant_id: UUID, user_id: UUID, message_id: UUID, *,
-        status: AIMessageStatus, partial_content: str, code: str,
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        message_id: UUID,
+        *,
+        status: AIMessageStatus,
+        partial_content: str,
+        code: str,
     ) -> None:
         message = self.repository.message_owned(tenant_id, user_id, message_id)
         if message is None or message.status != AIMessageStatus.STREAMING:
@@ -273,7 +315,12 @@ class AIConversationService:
         self.repository.commit()
 
     def list(
-        self, tenant_id: UUID, user_id: UUID, *, limit: int, offset: int,
+        self,
+        tenant_id: UUID,
+        user_id: UUID,
+        *,
+        limit: int,
+        offset: int,
         archived: bool | None,
     ) -> ConversationList:
         if self.repository.fail_stale(tenant_id, user_id):
@@ -283,7 +330,9 @@ class AIConversationService:
         )
         return ConversationList(
             items=[self._summary(tenant_id, user_id, item) for item in items],
-            total=total, limit=limit, offset=offset,
+            total=total,
+            limit=limit,
+            offset=offset,
         )
 
     def detail(
@@ -294,19 +343,25 @@ class AIConversationService:
         messages = self.repository.messages(tenant_id, user_id, conversation.id)
         return ConversationDetail(
             **summary.model_dump(),
-            messages=[ConversationMessageView.model_validate(
-                {
-                    "id": message.id, "role": message.role,
-                    "content": message.content, "status": message.status,
-                    "created_at": message.created_at,
-                    "completed_at": message.completed_at, "model": message.model,
-                    "prompt_version": message.prompt_version,
-                    "citations": message.citations or [],
-                    "retrieval_metadata": message.retrieval_metadata or {},
-                    "failure_metadata": message.failure_metadata or {},
-                    "context_message_ids": message.context_message_ids or [],
-                }
-            ) for message in messages],
+            messages=[
+                ConversationMessageView.model_validate(
+                    {
+                        "id": message.id,
+                        "role": message.role,
+                        "content": message.content,
+                        "status": message.status,
+                        "created_at": message.created_at,
+                        "completed_at": message.completed_at,
+                        "model": message.model,
+                        "prompt_version": message.prompt_version,
+                        "citations": message.citations or [],
+                        "retrieval_metadata": message.retrieval_metadata or {},
+                        "failure_metadata": message.failure_metadata or {},
+                        "context_message_ids": message.context_message_ids or [],
+                    }
+                )
+                for message in messages
+            ],
         )
 
     def rename(
@@ -360,8 +415,10 @@ class AIConversationService:
         preview = self.repository.last_preview(tenant_id, user_id, conversation.id)
         preview = normalize_conversation_preview(preview)
         return ConversationSummary(
-            id=conversation.id, title=conversation.title,
-            created_at=conversation.created_at, updated_at=conversation.updated_at,
+            id=conversation.id,
+            title=conversation.title,
+            created_at=conversation.created_at,
+            updated_at=conversation.updated_at,
             last_message_at=conversation.last_message_at,
             is_archived=conversation.is_archived,
             last_message_preview=preview or None,

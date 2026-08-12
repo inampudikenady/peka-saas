@@ -24,7 +24,10 @@ from app.models.document import (
     StorageStatus,
 )
 from app.repositories.document_repository import DocumentRepository
-from app.schemas.document_api import ConnectorDocumentAcknowledgement, ConnectorDocumentMetadata
+from app.schemas.document_api import (
+    ConnectorDocumentAcknowledgement,
+    ConnectorDocumentMetadata,
+)
 from app.schemas.document_api import DocumentErrorCode
 from app.services.object_storage import ObjectStorage, ObjectTooLargeError
 from app.services.ingestion_runtime import ingestion_runtime
@@ -74,7 +77,8 @@ class DocumentIngestionService:
         if record.request_fingerprint != fingerprint:
             raise DocumentIngestionError(
                 DocumentErrorCode.IDEMPOTENCY_CONFLICT,
-                "Idempotency-Key was already used for a different request.", 409
+                "Idempotency-Key was already used for a different request.",
+                409,
             )
         return ConnectorDocumentAcknowledgement.model_validate(record.response_payload)
 
@@ -98,7 +102,8 @@ class DocumentIngestionService:
                 response_payload=response.model_dump(mode="json"),
                 http_status=201,
                 status="ACCEPTED",
-                expires_at=datetime.now(timezone.utc) + timedelta(hours=self.idempotency_hours),
+                expires_at=datetime.now(timezone.utc)
+                + timedelta(hours=self.idempotency_hours),
             )
         )
 
@@ -114,7 +119,10 @@ class DocumentIngestionService:
         if replay := self._replay(connector, idempotency_key, fingerprint):
             logger.info(
                 "Document delivery replayed",
-                extra={"connector_id": str(connector.id), "document_id": str(replay.document_id)},
+                extra={
+                    "connector_id": str(connector.id),
+                    "document_id": str(replay.document_id),
+                },
             )
             return replay
         if metadata.operation == "delete":
@@ -138,7 +146,8 @@ class DocumentIngestionService:
         if metadata.size_bytes > self.max_upload_bytes:
             raise DocumentIngestionError(
                 DocumentErrorCode.SIZE_MISMATCH,
-                "The document exceeds the configured size limit.", 413
+                "The document exceeds the configured size limit.",
+                413,
             )
 
         now = datetime.now(timezone.utc)
@@ -147,15 +156,21 @@ class DocumentIngestionService:
         )
         if document is None:
             document = Document(
-                id=uuid4(), tenant_id=connector.tenant_id, connector_id=connector.id,
+                id=uuid4(),
+                tenant_id=connector.tenant_id,
+                connector_id=connector.id,
                 created_by_connector_id=connector.id,
                 last_seen_by_connector_id=connector.id,
                 last_synchronized_at=now,
-                source_id=metadata.source_id, document_key=metadata.document_key,
-                filename=metadata.filename, normalized_filename=metadata.filename.casefold(),
-                relative_path=metadata.relative_path, mime_type=metadata.mime_type,
+                source_id=metadata.source_id,
+                document_key=metadata.document_key,
+                filename=metadata.filename,
+                normalized_filename=metadata.filename.casefold(),
+                relative_path=metadata.relative_path,
+                mime_type=metadata.mime_type,
                 extension=Path(metadata.filename).suffix.lower(),
-                lifecycle_status=DocumentLifecycleStatus.ACTIVE, is_deleted=False,
+                lifecycle_status=DocumentLifecycleStatus.ACTIVE,
+                is_deleted=False,
             )
             self.repository.add(document)
             self.repository.flush()
@@ -187,13 +202,15 @@ class DocumentIngestionService:
             self.repository.rollback()
             raise DocumentIngestionError(
                 DocumentErrorCode.SIZE_MISMATCH,
-                "The uploaded document exceeds the configured size limit.", 413,
+                "The uploaded document exceeds the configured size limit.",
+                413,
             ) from exc
         except Exception as exc:
             self.repository.rollback()
             raise DocumentIngestionError(
                 DocumentErrorCode.STORAGE_UNAVAILABLE,
-                "Document storage is temporarily unavailable.", 503,
+                "Document storage is temporarily unavailable.",
+                503,
             ) from exc
         if stored.size_bytes != metadata.size_bytes:
             self.storage.delete(object_key)
@@ -211,8 +228,11 @@ class DocumentIngestionService:
             )
         logger.info(
             "document_stored",
-            extra={"tenant_id": str(connector.tenant_id),
-                   "connector_id": str(connector.id), "document_id": str(document.id)},
+            extra={
+                "tenant_id": str(connector.tenant_id),
+                "connector_id": str(connector.id),
+                "document_id": str(document.id),
+            },
         )
         if existing is not None:
             self.storage.delete(object_key)
@@ -227,15 +247,20 @@ class DocumentIngestionService:
                 existing.safe_error_message = None
                 existing.failed_at = None
                 self.repository.enqueue_job(
-                    connector.tenant_id, document.id, existing.id,
-                    IngestionJobType.REINDEX_DOCUMENT, idempotency_key,
+                    connector.tenant_id,
+                    document.id,
+                    existing.id,
+                    IngestionJobType.REINDEX_DOCUMENT,
+                    idempotency_key,
                 )
             response = ConnectorDocumentAcknowledgement(
-                document_id=document.id, version_id=existing.id,
+                document_id=document.id,
+                version_id=existing.id,
                 content_hash=existing.content_hash,
                 ingestion_status=(
                     IngestionStatus.RECEIVED.value
-                    if requires_reindex else existing.ingestion_status.value
+                    if requires_reindex
+                    else existing.ingestion_status.value
                 ),
             )
             self._record_idempotency(
@@ -245,12 +270,19 @@ class DocumentIngestionService:
             ingestion_runtime.notify()
             return response
         version = DocumentVersion(
-            id=version_id, document_id=document.id, tenant_id=connector.tenant_id,
-            connector_id=connector.id, content_hash=stored.sha256.lower(),
-            size_bytes=stored.size_bytes, modified_at=modified_at,
-            object_key=stored.key, storage_status=StorageStatus.STORED,
-            ingestion_status=IngestionStatus.RECEIVED, received_at=now,
-            stored_at=now, queued_at=now,
+            id=version_id,
+            document_id=document.id,
+            tenant_id=connector.tenant_id,
+            connector_id=connector.id,
+            content_hash=stored.sha256.lower(),
+            size_bytes=stored.size_bytes,
+            modified_at=modified_at,
+            object_key=stored.key,
+            storage_status=StorageStatus.STORED,
+            ingestion_status=IngestionStatus.RECEIVED,
+            received_at=now,
+            stored_at=now,
+            queued_at=now,
         )
         document.current_version_id = version.id
         self.repository.add(version)
@@ -259,30 +291,42 @@ class DocumentIngestionService:
         # coupling and PostgreSQL must see the referenced key before dependants.
         self.repository.flush()
         self.repository.enqueue_job(
-            connector.tenant_id, document.id, version.id,
-            IngestionJobType.PARSE_DOCUMENT, idempotency_key,
+            connector.tenant_id,
+            document.id,
+            version.id,
+            IngestionJobType.PARSE_DOCUMENT,
+            idempotency_key,
         )
         response = ConnectorDocumentAcknowledgement(
-            document_id=document.id, version_id=version.id,
-            content_hash=stored.sha256.lower(), ingestion_status=IngestionStatus.RECEIVED.value,
+            document_id=document.id,
+            version_id=version.id,
+            content_hash=stored.sha256.lower(),
+            ingestion_status=IngestionStatus.RECEIVED.value,
         )
-        self._record_idempotency(connector, idempotency_key, fingerprint, metadata, response)
+        self._record_idempotency(
+            connector, idempotency_key, fingerprint, metadata, response
+        )
         try:
             self.repository.commit()
         except IntegrityError as exc:
             self.repository.rollback()
             self.storage.delete(object_key)
-            constraint_name = getattr(getattr(exc.orig, "diag", None), "constraint_name", None)
+            constraint_name = getattr(
+                getattr(exc.orig, "diag", None), "constraint_name", None
+            )
             logger.error(
                 "Document metadata commit rejected (internal_reason=integrity_error, constraint=%s)",
                 constraint_name or "unknown",
-                extra={"tenant_id": str(connector.tenant_id),
-                       "connector_id": str(connector.id),
-                       "document_id": str(document.id)},
+                extra={
+                    "tenant_id": str(connector.tenant_id),
+                    "connector_id": str(connector.id),
+                    "document_id": str(document.id),
+                },
             )
             raise DocumentIngestionError(
                 DocumentErrorCode.STORAGE_UNAVAILABLE,
-                "The document could not be committed safely.", 503,
+                "The document could not be committed safely.",
+                503,
             ) from exc
         except Exception:
             self.repository.rollback()
@@ -291,8 +335,10 @@ class DocumentIngestionService:
         logger.info(
             "job_queued",
             extra={
-                "tenant_id": str(connector.tenant_id), "connector_id": str(connector.id),
-                "document_id": str(document.id), "version_id": str(version.id),
+                "tenant_id": str(connector.tenant_id),
+                "connector_id": str(connector.id),
+                "document_id": str(document.id),
+                "version_id": str(version.id),
                 "stage": IngestionJobType.PARSE_DOCUMENT.value,
             },
         )
@@ -313,7 +359,8 @@ class DocumentIngestionService:
         if document is None:
             raise DocumentIngestionError(
                 DocumentErrorCode.DOCUMENT_NOT_FOUND,
-                "The document was not found for this connector.", 404,
+                "The document was not found for this connector.",
+                404,
             )
         if not document.is_deleted:
             document.connector_id = connector.id
@@ -323,20 +370,28 @@ class DocumentIngestionService:
             document.is_deleted = True
             document.deleted_at = now
             self.repository.enqueue_job(
-                connector.tenant_id, document.id, None,
-                IngestionJobType.DELETE_FROM_INDEX, idempotency_key,
+                connector.tenant_id,
+                document.id,
+                None,
+                IngestionJobType.DELETE_FROM_INDEX,
+                idempotency_key,
             )
         response = ConnectorDocumentAcknowledgement(
-            document_id=document.id, version_id=None, content_hash=None,
+            document_id=document.id,
+            version_id=None,
+            content_hash=None,
             ingestion_status="DELETE_RECEIVED",
         )
-        self._record_idempotency(connector, idempotency_key, fingerprint, metadata, response)
+        self._record_idempotency(
+            connector, idempotency_key, fingerprint, metadata, response
+        )
         self.repository.commit()
         ingestion_runtime.notify()
         logger.info(
             "Document deletion accepted",
             extra={
-                "tenant_id": str(connector.tenant_id), "connector_id": str(connector.id),
+                "tenant_id": str(connector.tenant_id),
+                "connector_id": str(connector.id),
                 "document_id": str(document.id),
             },
         )

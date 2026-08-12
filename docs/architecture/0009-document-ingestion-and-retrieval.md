@@ -1,5 +1,8 @@
 # ADR-0009: Document ingestion and retrieval
 
+> Superseded for normal runtime by ADR 0010. This remains a record of the
+> SaaS-owned implementation retained for controlled migration and rollback.
+
 Status: Accepted
 
 ## Context

@@ -16,7 +16,7 @@ export function PlatformShell({ children, title, adminOnly = false }: { children
   if (restricted && user.role !== "platform_admin") return <main className="mx-auto max-w-xl p-10"><h1 className="text-2xl font-semibold">Access forbidden</h1><p className="mt-2 text-sm text-slate-500">Platform administrator access is required for this page.</p></main>;
   const admin = user.role === "platform_admin";
   const items = admin
-    ? [{ label: "Tenants", href: "/platform/tenants" }, { label: "Connectors", href: "/platform/connectors" }, { label: "Administration", href: "/platform/administration" }]
+    ? [{ label: "Overview", href: "/platform/overview" }, { label: "Tenants", href: "/platform/tenants" }, { label: "Connectors", href: "/platform/connectors" }, { label: "Administration", href: "/platform/administration" }]
     : [{ label: "Overview", href: "/platform/overview" }, { label: "Tenants", href: "/platform/tenants" }, { label: "Connectors", href: "/platform/connectors" }];
-  return <AppShell title={title} subtitle={admin ? "Administrator access" : "Executive overview"} userLabel={user.full_name} profileHref="/platform/profile" items={items} onLogout={() => { platformSession.clear(); router.replace("/platform/login"); }}>{children}</AppShell>;
+  return <AppShell title={title} subtitle={admin ? "Platform administrator" : "Platform read-only"} userLabel={user.full_name} profileHref="/platform/profile" items={items} onLogout={() => { platformSession.clear(); router.replace("/platform/login"); }}>{children}</AppShell>;
 }

@@ -74,7 +74,7 @@ The current local development runtime is:
 - Apple Metal GPU,
 - verified `100% GPU` execution for `qwen3:8b`.
 
-The implementation must not introduce a Docker-based Ollama dependency.
+The implementation must not introduce a repository-managed Ollama runtime.
 
 ## 5. Architectural Principles
 
@@ -1105,7 +1105,7 @@ PROCESSOR    100% GPU
 
 ### 23.4 Important Constraint
 
-Do not create or start a Docker Ollama container.
+Do not create or start Ollama from this repository.
 
 Native Ollama is the supported macOS development runtime.
 
@@ -1285,7 +1285,7 @@ Run:
 - tenant-isolation tests,
 - Alembic current,
 - Alembic drift check,
-- Docker Compose validation,
+- disposable test-dependency Compose validation,
 - `git diff --check`,
 - credential scan.
 

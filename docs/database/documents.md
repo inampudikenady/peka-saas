@@ -1,5 +1,9 @@
 # Document ingestion database model
 
+> Legacy migration schema. These tables are retained non-destructively while
+> existing SaaS-resident documents are exported, re-indexed, and validated in
+> customer Connectors; normal SaaS runtime no longer writes them.
+
 Migrations `a13f4c8d7e21` and `b24d9e6f1a32` add and refine the knowledge-ingestion schema without resetting existing SaaS data.
 
 - `documents` is the tenant-scoped logical identity and soft-deletion tombstone.

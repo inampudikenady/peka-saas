@@ -29,7 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--tenant", required=True, help="Exact tenant slug")
     parser.add_argument("--document-id", required=True, type=UUID)
-    parser.add_argument("--query", required=True, help="Text expected to retrieve the document")
+    parser.add_argument(
+        "--query", required=True, help="Text expected to retrieve the document"
+    )
     return parser
 
 

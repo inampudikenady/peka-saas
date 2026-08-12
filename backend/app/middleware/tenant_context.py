@@ -1,5 +1,6 @@
 import logging
 import re
+from enum import Enum
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -13,28 +14,43 @@ from app.services.tenant_resolver import TenantResolver
 logger = logging.getLogger(__name__)
 
 TENANT_PATH_PATTERN = re.compile(r"^/t/([^/]+)(/.*)$")
-CONNECTOR_AUTHENTICATED_PATH_PATTERN = re.compile(
-    rf"^{re.escape(settings.api_prefix)}/connectors/[^/]+/(heartbeat|documents(?:/status)?)$"
-)
 CONNECTOR_REGISTRATION_PATH = f"{settings.api_prefix}/connectors/register"
+CONNECTOR_API_PATH_PATTERN = re.compile(
+    rf"^{re.escape(settings.api_prefix)}/connectors(?:/|$)"
+)
 
-
-SKIP_PATH_PREFIXES = (
+TENANT_NEUTRAL_PATH_PREFIXES = (
     "/health",
     "/docs",
     "/redoc",
-    "/api/v1/openapi.json",
-    "/api/v1/platform",
+    f"{settings.api_prefix}/openapi.json",
+    f"{settings.api_prefix}/platform",
 )
 
 
-def is_tenant_neutral_connector_request(method: str, path: str) -> bool:
-    """Connector identity comes from credentials, never HTTP routing headers."""
-    if method.upper() == "POST" and path == CONNECTOR_REGISTRATION_PATH:
-        return True
-    return method.upper() in {"GET", "POST"} and (
-        CONNECTOR_AUTHENTICATED_PATH_PATTERN.fullmatch(path) is not None
-    )
+class RequestTenancy(str, Enum):
+    TENANT_HOST = "tenant_host"
+    TENANT_NEUTRAL = "tenant_neutral"
+    CONNECTOR_REGISTRATION = "connector_registration"
+    CONNECTOR_AUTHENTICATED = "connector_authenticated"
+
+
+def _matches_path_prefix(path: str, prefix: str) -> bool:
+    """Match an exact route or a child route, never a lookalike prefix."""
+    return path == prefix or path.startswith(f"{prefix}/")
+
+
+def classify_request_tenancy(path: str) -> RequestTenancy:
+    """Classify how a request obtains tenancy before host resolution runs."""
+    if path == CONNECTOR_REGISTRATION_PATH:
+        return RequestTenancy.CONNECTOR_REGISTRATION
+    if CONNECTOR_API_PATH_PATTERN.match(path) is not None:
+        return RequestTenancy.CONNECTOR_AUTHENTICATED
+    if any(
+        _matches_path_prefix(path, prefix) for prefix in TENANT_NEUTRAL_PATH_PREFIXES
+    ):
+        return RequestTenancy.TENANT_NEUTRAL
+    return RequestTenancy.TENANT_HOST
 
 
 class TenantContextMiddleware(BaseHTTPMiddleware):
@@ -50,10 +66,10 @@ class TenantContextMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next) -> Response:
         path = request.url.path
+        tenancy = classify_request_tenancy(path)
 
-        if path.startswith(SKIP_PATH_PREFIXES) or is_tenant_neutral_connector_request(
-            request.method, path
-        ):
+        if tenancy is not RequestTenancy.TENANT_HOST:
+            request.state.request_tenancy = tenancy
             return await call_next(request)
 
         host = request.headers.get("host", "")

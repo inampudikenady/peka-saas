@@ -1,0 +1,14 @@
+# Migration/rollback only. Never include this file in the normal SaaS deployment.
+services:
+  migration-qdrant:
+    image: qdrant/qdrant:v1.14.1
+    profiles: ["migration"]
+    ports:
+      - "127.0.0.1:${PEKA_MIGRATION_QDRANT_PORT:-6333}:6333"
+    volumes:
+      - legacy_saas_qdrant:/qdrant/storage
+
+volumes:
+  legacy_saas_qdrant:
+    external: true
+    name: ${PEKA_SAAS_QDRANT_VOLUME:-peka-saas_peka_saas_qdrant}

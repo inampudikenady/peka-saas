@@ -9,6 +9,7 @@ from app.core.exceptions import (
 )
 
 from app.core.security import hash_password
+from app.core.identity import normalize_email
 from app.models.tenant_user import TenantUser, TenantUserAuthSource, TenantUserRole
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_admin_invite_repository import TenantAdminInviteRepository
@@ -71,7 +72,7 @@ class TenantAccountActivationService:
 
         existing_user = self.user_repository.get_by_tenant_and_email(
             invite.tenant_id,
-            invite.email,
+            normalize_email(invite.email),
         )
 
         if existing_user is not None:
@@ -89,7 +90,7 @@ class TenantAccountActivationService:
         user = TenantUser(
             tenant_id=invite.tenant_id,
             username=username,
-            email=invite.email,
+            email=normalize_email(invite.email),
             full_name=invite.full_name,
             auth_source=TenantUserAuthSource.LOCAL,
             password_hash=hash_password(password),

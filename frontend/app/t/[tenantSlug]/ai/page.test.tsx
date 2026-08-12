@@ -301,7 +301,7 @@ it("shows onboarding guidance when this tenant has no indexed knowledge", async 
   });
   render(<Page />);
   expect(await screen.findByRole("heading", {
-    name: "Add knowledge to get started",
+    name: "Local knowledge is not ready",
   })).toBeInTheDocument();
   expect(screen.getByText(
     "Index tenant documents before asking PEKA questions.",

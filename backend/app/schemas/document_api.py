@@ -14,7 +14,9 @@ SUPPORTED_MIME_TYPES = {
     ".md": {"text/markdown", "text/plain", "application/octet-stream"},
     ".csv": {"text/csv", "application/csv", "application/octet-stream"},
     ".pdf": {"application/pdf"},
-    ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+    ".docx": {
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    },
     ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
 }
 
@@ -42,7 +44,9 @@ class DocumentErrorResponse(BaseModel):
 class ConnectorDocumentMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source_id: str = Field(min_length=1, max_length=255, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$")
+    source_id: str = Field(
+        min_length=1, max_length=255, pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+    )
     document_key: str = Field(min_length=1, max_length=512, pattern=r"^[^\\\x00]+$")
     relative_path: str = Field(min_length=1, max_length=1024)
     filename: str = Field(min_length=1, max_length=255)
@@ -67,7 +71,10 @@ class ConnectorDocumentMetadata(BaseModel):
     def safe_filename(cls, value: str) -> str:
         from pathlib import Path
 
-        if Path(value).name != value or Path(value).suffix.lower() not in SUPPORTED_EXTENSIONS:
+        if (
+            Path(value).name != value
+            or Path(value).suffix.lower() not in SUPPORTED_EXTENSIONS
+        ):
             raise ValueError("filename is unsafe or unsupported")
         return value
 

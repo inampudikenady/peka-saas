@@ -238,7 +238,13 @@ def test_continuation_context_is_owned_and_drops_old_citation_labels():
     )
     value.complete(
         tenant_id, user_id, assistant.id,
-        content="Use the signed package. [C1]", citations=[], retrieval={},
+        content="Use the signed package. [C1]", citations=[],
+        retrieval={
+            "operational_context": {
+                "tool_name": "count_assets",
+                "arguments": {"os_family": "linux"},
+            }
+        },
         model="test", prompt_version="v1",
     )
     context = value.generation_context(tenant_id, user_id, conversation.id)
@@ -246,6 +252,10 @@ def test_continuation_context_is_owned_and_drops_old_citation_labels():
     assert "Use the signed package." in context.text
     assert "[C1]" not in context.text
     assert context.message_ids
+    assert context.operational_context == {
+        "tool_name": "count_assets",
+        "arguments": {"os_family": "linux"},
+    }
     _conversation, followup = value.begin_message(
         tenant_id, user_id, "What about Windows?", conversation.id,
         context_message_ids=context.message_ids,

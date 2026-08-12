@@ -87,7 +87,9 @@ class ConnectorService:
     @staticmethod
     def _utc(value: datetime) -> datetime:
         """Normalize drivers (notably SQLite in tests) that drop timezone metadata."""
-        return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        return (
+            value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        )
 
     def _event(
         self,
@@ -100,18 +102,22 @@ class ConnectorService:
         detail: str | None = None,
         now: datetime | None = None,
     ) -> ConnectorEvent:
-        return self.repository.add(ConnectorEvent(
-            tenant_id=tenant_id,
-            connector_id=connector_id,
-            registration_token_id=token_id,
-            event_type=event_type,
-            actor_user_id=actor_user_id,
-            detail=detail,
-            occurred_at=now or self.now(),
-        ))
+        return self.repository.add(
+            ConnectorEvent(
+                tenant_id=tenant_id,
+                connector_id=connector_id,
+                registration_token_id=token_id,
+                event_type=event_type,
+                actor_user_id=actor_user_id,
+                detail=detail,
+                occurred_at=now or self.now(),
+            )
+        )
 
     @staticmethod
-    def _token_status(token: ConnectorRegistrationToken, now: datetime) -> Literal["active", "used", "expired", "revoked"]:
+    def _token_status(
+        token: ConnectorRegistrationToken, now: datetime
+    ) -> Literal["active", "used", "expired", "revoked"]:
         if token.used_at is not None:
             return "used"
         if token.revoked_at is not None:
@@ -120,24 +126,38 @@ class ConnectorService:
             return "expired"
         return "active"
 
-    def _token_response(self, token: ConnectorRegistrationToken, now: datetime, raw: str | None = None):
+    def _token_response(
+        self, token: ConnectorRegistrationToken, now: datetime, raw: str | None = None
+    ):
         status = self._token_status(token, now)
         if raw is not None:
             return RegistrationTokenCreatedResponse(
-                id=token.id, tenant_id=token.tenant_id, expires_at=token.expires_at,
-                used_at=token.used_at, created_by_user_id=token.created_by_user_id,
-                created_at=token.created_at, revoked_at=token.revoked_at,
+                id=token.id,
+                tenant_id=token.tenant_id,
+                expires_at=token.expires_at,
+                used_at=token.used_at,
+                created_by_user_id=token.created_by_user_id,
+                created_at=token.created_at,
+                revoked_at=token.revoked_at,
                 intended_connector_name=token.intended_connector_name,
-                status=status, registration_token=raw,
+                status=status,
+                registration_token=raw,
             )
         return RegistrationTokenResponse(
-            id=token.id, tenant_id=token.tenant_id, expires_at=token.expires_at,
-            used_at=token.used_at, created_by_user_id=token.created_by_user_id,
-            created_at=token.created_at, revoked_at=token.revoked_at,
-            intended_connector_name=token.intended_connector_name, status=status,
+            id=token.id,
+            tenant_id=token.tenant_id,
+            expires_at=token.expires_at,
+            used_at=token.used_at,
+            created_by_user_id=token.created_by_user_id,
+            created_at=token.created_at,
+            revoked_at=token.revoked_at,
+            intended_connector_name=token.intended_connector_name,
+            status=status,
         )
 
-    def create_registration_token(self, tenant_id: UUID, actor: TenantUser, intended_name: str | None) -> RegistrationTokenCreatedResponse:
+    def create_registration_token(
+        self, tenant_id: UUID, actor: TenantUser, intended_name: str | None
+    ) -> RegistrationTokenCreatedResponse:
         now = self.now()
         raw = generate_registration_token()
         token = ConnectorRegistrationToken(
@@ -149,14 +169,23 @@ class ConnectorService:
         )
         try:
             self.repository.add(token)
-            self._event(tenant_id, ConnectorEventType.REGISTRATION_TOKEN_GENERATED, token_id=token.id, actor_user_id=actor.id, detail="Single-use registration token generated.", now=now)
+            self._event(
+                tenant_id,
+                ConnectorEventType.REGISTRATION_TOKEN_GENERATED,
+                token_id=token.id,
+                actor_user_id=actor.id,
+                detail="Single-use registration token generated.",
+                now=now,
+            )
             self.repository.commit()
             return self._token_response(token, now, raw)
         except SQLAlchemyError:
             self.repository.rollback()
             raise
 
-    def list_registration_tokens(self, tenant_id: UUID, *, include_inactive: bool = False) -> list[RegistrationTokenResponse]:
+    def list_registration_tokens(
+        self, tenant_id: UUID, *, include_inactive: bool = False
+    ) -> list[RegistrationTokenResponse]:
         now = self.now()
         tokens = self.repository.list_registration_tokens(
             tenant_id,
@@ -165,24 +194,46 @@ class ConnectorService:
         )
         changed = False
         for token in tokens:
-            if token.used_at is None and token.revoked_at is None and self._utc(token.expires_at) <= now and token.expiration_event_recorded_at is None:
+            if (
+                token.used_at is None
+                and token.revoked_at is None
+                and self._utc(token.expires_at) <= now
+                and token.expiration_event_recorded_at is None
+            ):
                 token.expiration_event_recorded_at = now
-                self._event(tenant_id, ConnectorEventType.REGISTRATION_TOKEN_EXPIRED, token_id=token.id, detail="Registration token expired.", now=now)
+                self._event(
+                    tenant_id,
+                    ConnectorEventType.REGISTRATION_TOKEN_EXPIRED,
+                    token_id=token.id,
+                    detail="Registration token expired.",
+                    now=now,
+                )
                 changed = True
         if changed:
             self.repository.commit()
         return [self._token_response(token, now) for token in tokens]
 
-    def revoke_registration_token(self, tenant_id: UUID, token_id: UUID, actor: TenantUser) -> RegistrationTokenResponse:
+    def revoke_registration_token(
+        self, tenant_id: UUID, token_id: UUID, actor: TenantUser
+    ) -> RegistrationTokenResponse:
         token = self.repository.get_registration_token(tenant_id, token_id)
         if token is None:
             raise ConnectorServiceError("Registration token not found.", 404)
         now = self.now()
         if token.used_at is not None:
-            raise ConnectorServiceError("Used registration tokens cannot be revoked.", 409)
+            raise ConnectorServiceError(
+                "Used registration tokens cannot be revoked.", 409
+            )
         if token.revoked_at is None:
             token.revoked_at = now
-            self._event(tenant_id, ConnectorEventType.REGISTRATION_TOKEN_REVOKED, token_id=token.id, actor_user_id=actor.id, detail="Registration token revoked.", now=now)
+            self._event(
+                tenant_id,
+                ConnectorEventType.REGISTRATION_TOKEN_REVOKED,
+                token_id=token.id,
+                actor_user_id=actor.id,
+                detail="Registration token revoked.",
+                now=now,
+            )
             self.repository.commit()
         return self._token_response(token, now)
 
@@ -198,7 +249,13 @@ class ConnectorService:
     ) -> NoReturn:
         tenant_id = token.tenant_id
         token_id = token.id
-        self._event(tenant_id, ConnectorEventType.REGISTRATION_TOKEN_FAILED, token_id=token_id, detail=detail, now=now)
+        self._event(
+            tenant_id,
+            ConnectorEventType.REGISTRATION_TOKEN_FAILED,
+            token_id=token_id,
+            detail=detail,
+            now=now,
+        )
         self.repository.commit()
         raise ConnectorRegistrationError(
             error_code,
@@ -209,9 +266,13 @@ class ConnectorService:
             internal_reason=internal_reason or error_code.value.lower(),
         )
 
-    def register(self, payload: ConnectorRegistrationRequest) -> ConnectorRegistrationResponse:
+    def register(
+        self, payload: ConnectorRegistrationRequest
+    ) -> ConnectorRegistrationResponse:
         now = self.now()
-        token = self.repository.get_registration_token_for_update(hash_registration_token(payload.registration_token))
+        token = self.repository.get_registration_token_for_update(
+            hash_registration_token(payload.registration_token)
+        )
         if token is None:
             raise ConnectorRegistrationError(
                 ConnectorRegistrationErrorCode.TOKEN_NOT_FOUND,
@@ -240,7 +301,13 @@ class ConnectorService:
         if self._utc(token.expires_at) <= now:
             if token.expiration_event_recorded_at is None:
                 token.expiration_event_recorded_at = now
-                self._event(token.tenant_id, ConnectorEventType.REGISTRATION_TOKEN_EXPIRED, token_id=token.id, detail="Registration token expired.", now=now)
+                self._event(
+                    token.tenant_id,
+                    ConnectorEventType.REGISTRATION_TOKEN_EXPIRED,
+                    token_id=token.id,
+                    detail="Registration token expired.",
+                    now=now,
+                )
             self._failed_token_use(
                 token,
                 "The registration token has expired.",
@@ -275,7 +342,10 @@ class ConnectorService:
                 now,
                 internal_reason=f"tenant_{tenant.status.value}",
             )
-        if self.repository.get_active_by_instance(token.tenant_id, payload.instance_id) is not None:
+        if (
+            self.repository.get_active_by_instance(token.tenant_id, payload.instance_id)
+            is not None
+        ):
             self._failed_token_use(
                 token,
                 "This connector appliance is already registered.",
@@ -285,7 +355,8 @@ class ConnectorService:
             )
         if (
             self.connector_limit is not None
-            and self.repository.count_active_for_tenant(token.tenant_id) >= self.connector_limit
+            and self.repository.count_active_for_tenant(token.tenant_id)
+            >= self.connector_limit
         ):
             self._failed_token_use(
                 token,
@@ -311,14 +382,35 @@ class ConnectorService:
         )
         try:
             self.repository.add(connector)
-            self.repository.replace_capabilities(connector, list(payload.capabilities), now)
+            self.repository.replace_capabilities(
+                connector, list(payload.capabilities), now
+            )
             token.used_at = now
-            self._event(token.tenant_id, ConnectorEventType.REGISTRATION_TOKEN_USED, connector_id=connector.id, token_id=token.id, detail="Registration token consumed.", now=now)
-            self._event(token.tenant_id, ConnectorEventType.REGISTERED, connector_id=connector.id, token_id=token.id, detail="Connector registered.", now=now)
+            self._event(
+                token.tenant_id,
+                ConnectorEventType.REGISTRATION_TOKEN_USED,
+                connector_id=connector.id,
+                token_id=token.id,
+                detail="Registration token consumed.",
+                now=now,
+            )
+            self._event(
+                token.tenant_id,
+                ConnectorEventType.REGISTERED,
+                connector_id=connector.id,
+                token_id=token.id,
+                detail="Connector registered.",
+                now=now,
+            )
             self.repository.commit()
         except IntegrityError as exc:
             self.repository.rollback()
-            if self.repository.get_active_by_instance(token_tenant_id, payload.instance_id) is not None:
+            if (
+                self.repository.get_active_by_instance(
+                    token_tenant_id, payload.instance_id
+                )
+                is not None
+            ):
                 raise ConnectorRegistrationError(
                     ConnectorRegistrationErrorCode.INSTANCE_ALREADY_REGISTERED,
                     "This connector appliance is already registered.",
@@ -360,9 +452,21 @@ class ConnectorService:
         connector.authentication_failure_count += 1
         connector.last_seen_at = now
         old, new = self.status_service.recalculate(connector, now)
-        self._event(connector.tenant_id, ConnectorEventType.AUTHENTICATION_FAILURE, connector_id=connector.id, detail="Connector bearer authentication failed.", now=now)
+        self._event(
+            connector.tenant_id,
+            ConnectorEventType.AUTHENTICATION_FAILURE,
+            connector_id=connector.id,
+            detail="Connector bearer authentication failed.",
+            now=now,
+        )
         if old != new:
-            self._event(connector.tenant_id, ConnectorEventType.STATUS_CHANGED, connector_id=connector.id, detail=f"Status changed from {old.value} to {new.value}.", now=now)
+            self._event(
+                connector.tenant_id,
+                ConnectorEventType.STATUS_CHANGED,
+                connector_id=connector.id,
+                detail=f"Status changed from {old.value} to {new.value}.",
+                now=now,
+            )
         self.repository.commit()
 
     def authenticate(
@@ -381,7 +485,9 @@ class ConnectorService:
             self.__class__._dummy_secret_hash = hash_connector_secret(
                 "invalid-connector-secret-for-timing-equalization"
             )
-        hash_to_check = connector.secret_hash if connector is not None else self._dummy_secret_hash
+        hash_to_check = (
+            connector.secret_hash if connector is not None else self._dummy_secret_hash
+        )
         authenticated = bearer_secret is not None and verify_connector_secret(
             bearer_secret, hash_to_check or ""
         )
@@ -391,36 +497,74 @@ class ConnectorService:
                 self._record_auth_failure(connector, now)
             raise ConnectorServiceError("Connector authentication failed.", 401)
         if connector.retired_at is not None:
-            message = "Connector is retired." if retired_status_code != 401 else "Connector authentication failed."
+            message = (
+                "Connector is retired."
+                if retired_status_code != 401
+                else "Connector authentication failed."
+            )
             raise ConnectorServiceError(message, retired_status_code)
-        if reject_authentication_failed and connector.status == ManagedConnectorStatus.AUTHENTICATION_FAILED:
-            raise ConnectorServiceError("Connector authentication is locked after repeated failures.", 403)
+        if (
+            reject_authentication_failed
+            and connector.status == ManagedConnectorStatus.AUTHENTICATION_FAILED
+        ):
+            raise ConnectorServiceError(
+                "Connector authentication is locked after repeated failures.", 403
+            )
         connector.last_seen_at = now
         return connector
 
-    def heartbeat(self, connector_id: UUID, header_connector_id: str | None, bearer_secret: str | None, payload: ConnectorHeartbeatRequest) -> ConnectorHeartbeatResponse:
-        now = self.now()
+    def heartbeat(
+        self,
+        connector_id: UUID,
+        header_connector_id: str | None,
+        bearer_secret: str | None,
+        payload: ConnectorHeartbeatRequest,
+    ) -> ConnectorHeartbeatResponse:
         connector = self.authenticate(connector_id, header_connector_id, bearer_secret)
-        if payload.instance_id != connector.instance_id:
-            self.repository.add(ConnectorHeartbeat(
-                connector_id=connector.id,
-                tenant_id=connector.tenant_id,
-                received_at=now,
-                reported_at=payload.timestamp,
-                version=payload.connector_version,
-                reported_status=payload.status,
-                uptime_seconds=payload.uptime_seconds,
-                source_total=payload.sources.total,
-                source_healthy=payload.sources.healthy,
-                source_unhealthy=payload.sources.unhealthy,
-                source_disabled=payload.sources.disabled,
-                accepted=False,
-            ))
-            self._event(connector.tenant_id, ConnectorEventType.AUTHENTICATION_FAILURE, connector_id=connector.id, detail="Authenticated heartbeat instance ID mismatch.", now=now)
-            self.repository.commit()
-            raise ConnectorServiceError("Heartbeat instance ID does not match registration.", 409)
+        return self.record_heartbeat(connector, payload)
 
-        previous_sources = (connector.source_total, connector.source_healthy, connector.source_unhealthy, connector.source_disabled)
+    def record_heartbeat(
+        self,
+        connector: ManagedConnector,
+        payload: ConnectorHeartbeatRequest,
+    ) -> ConnectorHeartbeatResponse:
+        """Persist a heartbeat for a connector authenticated by the API boundary."""
+        now = self.now()
+        if payload.instance_id != connector.instance_id:
+            self.repository.add(
+                ConnectorHeartbeat(
+                    connector_id=connector.id,
+                    tenant_id=connector.tenant_id,
+                    received_at=now,
+                    reported_at=payload.timestamp,
+                    version=payload.connector_version,
+                    reported_status=payload.status,
+                    uptime_seconds=payload.uptime_seconds,
+                    source_total=payload.sources.total,
+                    source_healthy=payload.sources.healthy,
+                    source_unhealthy=payload.sources.unhealthy,
+                    source_disabled=payload.sources.disabled,
+                    accepted=False,
+                )
+            )
+            self._event(
+                connector.tenant_id,
+                ConnectorEventType.AUTHENTICATION_FAILURE,
+                connector_id=connector.id,
+                detail="Authenticated heartbeat instance ID mismatch.",
+                now=now,
+            )
+            self.repository.commit()
+            raise ConnectorServiceError(
+                "Heartbeat instance ID does not match registration.", 409
+            )
+
+        previous_sources = (
+            connector.source_total,
+            connector.source_healthy,
+            connector.source_unhealthy,
+            connector.source_disabled,
+        )
         previous_status = connector.status
         if payload.connector_name is not None:
             connector.name = payload.connector_name
@@ -433,30 +577,81 @@ class ConnectorService:
         connector.source_healthy = payload.sources.healthy
         connector.source_unhealthy = payload.sources.unhealthy
         connector.source_disabled = payload.sources.disabled
+        if payload.local_knowledge_store is not None:
+            knowledge = payload.local_knowledge_store
+            connector.local_knowledge_store_status = knowledge.status
+            connector.knowledge_document_count = knowledge.documents
+            connector.knowledge_indexed_chunk_count = knowledge.indexed_chunks
+            connector.last_knowledge_index_activity_at = knowledge.last_index_activity
         connector.authentication_failure_count = 0
         connector.consecutive_missed_heartbeats = 0
         self.status_service.recalculate(connector, now)
-        self.repository.add(ConnectorHeartbeat(
-            connector_id=connector.id,
-            tenant_id=connector.tenant_id,
-            received_at=now,
-            reported_at=payload.timestamp,
-            version=payload.connector_version,
-            reported_status=payload.status,
-            uptime_seconds=payload.uptime_seconds,
-            source_total=payload.sources.total,
-            source_healthy=payload.sources.healthy,
-            source_unhealthy=payload.sources.unhealthy,
-            source_disabled=payload.sources.disabled,
-            accepted=True,
-        ))
+        self.repository.add(
+            ConnectorHeartbeat(
+                connector_id=connector.id,
+                tenant_id=connector.tenant_id,
+                received_at=now,
+                reported_at=payload.timestamp,
+                version=payload.connector_version,
+                reported_status=payload.status,
+                uptime_seconds=payload.uptime_seconds,
+                source_total=payload.sources.total,
+                source_healthy=payload.sources.healthy,
+                source_unhealthy=payload.sources.unhealthy,
+                source_disabled=payload.sources.disabled,
+                local_knowledge_store_status=(
+                    payload.local_knowledge_store.status
+                    if payload.local_knowledge_store is not None
+                    else None
+                ),
+                knowledge_document_count=(
+                    payload.local_knowledge_store.documents
+                    if payload.local_knowledge_store is not None
+                    else 0
+                ),
+                knowledge_indexed_chunk_count=(
+                    payload.local_knowledge_store.indexed_chunks
+                    if payload.local_knowledge_store is not None
+                    else 0
+                ),
+                last_knowledge_index_activity_at=(
+                    payload.local_knowledge_store.last_index_activity
+                    if payload.local_knowledge_store is not None
+                    else None
+                ),
+                accepted=True,
+            )
+        )
         self.repository.replace_capabilities(connector, list(payload.capabilities), now)
-        self._event(connector.tenant_id, ConnectorEventType.HEARTBEAT_RECEIVED, connector_id=connector.id, detail="Heartbeat accepted.", now=now)
-        current_sources = (connector.source_total, connector.source_healthy, connector.source_unhealthy, connector.source_disabled)
+        self._event(
+            connector.tenant_id,
+            ConnectorEventType.HEARTBEAT_RECEIVED,
+            connector_id=connector.id,
+            detail="Heartbeat accepted.",
+            now=now,
+        )
+        current_sources = (
+            connector.source_total,
+            connector.source_healthy,
+            connector.source_unhealthy,
+            connector.source_disabled,
+        )
         if previous_sources != current_sources:
-            self._event(connector.tenant_id, ConnectorEventType.SOURCE_HEALTH_CHANGED, connector_id=connector.id, detail="Reported source health summary changed.", now=now)
+            self._event(
+                connector.tenant_id,
+                ConnectorEventType.SOURCE_HEALTH_CHANGED,
+                connector_id=connector.id,
+                detail="Reported source health summary changed.",
+                now=now,
+            )
         if previous_status != connector.status:
-            self._event(connector.tenant_id, ConnectorEventType.STATUS_CHANGED, connector_id=connector.id, detail=f"Status changed from {previous_status.value} to {connector.status.value}.", now=now)
+            self._event(
+                connector.tenant_id,
+                ConnectorEventType.STATUS_CHANGED,
+                connector_id=connector.id,
+                detail=f"Status changed from {previous_status.value} to {connector.status.value}.",
+                now=now,
+            )
         try:
             self.repository.commit()
         except Exception:
@@ -471,66 +666,143 @@ class ConnectorService:
             tenant_timezone=tenant.timezone,
         )
 
-    def _recalculate_many(self, connectors: list[ManagedConnector], now: datetime) -> None:
+    def _recalculate_many(
+        self, connectors: list[ManagedConnector], now: datetime
+    ) -> None:
         changed = False
         for connector in connectors:
             old, new = self.status_service.recalculate(connector, now)
             if old != new:
-                self._event(connector.tenant_id, ConnectorEventType.STATUS_CHANGED, connector_id=connector.id, detail=f"Status changed from {old.value} to {new.value}.", now=now)
+                self._event(
+                    connector.tenant_id,
+                    ConnectorEventType.STATUS_CHANGED,
+                    connector_id=connector.id,
+                    detail=f"Status changed from {old.value} to {new.value}.",
+                    now=now,
+                )
                 changed = True
         if changed:
             self.repository.commit()
 
     @staticmethod
-    def _summary(connector: ManagedConnector, tenant_name: str | None = None, tenant_slug: str | None = None, tenant_timezone: str | None = None) -> ConnectorSummaryResponse:
+    def _summary(
+        connector: ManagedConnector,
+        tenant_name: str | None = None,
+        tenant_slug: str | None = None,
+        tenant_timezone: str | None = None,
+    ) -> ConnectorSummaryResponse:
         return ConnectorSummaryResponse(
-            id=connector.id, tenant_id=connector.tenant_id, tenant_name=tenant_name, tenant_slug=tenant_slug, tenant_timezone=tenant_timezone,
-            name=connector.name, instance_id=connector.instance_id, version=connector.version,
-            environment=connector.environment, status=connector.status.value,
-            registered_at=connector.registered_at, last_heartbeat_at=connector.last_heartbeat_at,
-            last_seen_at=connector.last_seen_at, heartbeat_interval_seconds=connector.heartbeat_interval_seconds,
-            source_total=connector.source_total, source_healthy=connector.source_healthy,
-            source_unhealthy=connector.source_unhealthy, source_disabled=connector.source_disabled,
+            id=connector.id,
+            tenant_id=connector.tenant_id,
+            tenant_name=tenant_name,
+            tenant_slug=tenant_slug,
+            tenant_timezone=tenant_timezone,
+            name=connector.name,
+            instance_id=connector.instance_id,
+            version=connector.version,
+            environment=connector.environment,
+            status=connector.status.value,
+            registered_at=connector.registered_at,
+            last_heartbeat_at=connector.last_heartbeat_at,
+            last_seen_at=connector.last_seen_at,
+            heartbeat_interval_seconds=connector.heartbeat_interval_seconds,
+            source_total=connector.source_total,
+            source_healthy=connector.source_healthy,
+            source_unhealthy=connector.source_unhealthy,
+            source_disabled=connector.source_disabled,
+            local_knowledge_store_status=connector.local_knowledge_store_status,
+            knowledge_document_count=connector.knowledge_document_count,
+            knowledge_indexed_chunk_count=connector.knowledge_indexed_chunk_count,
+            last_knowledge_index_activity_at=connector.last_knowledge_index_activity_at,
             retired_at=connector.retired_at,
-            created_at=connector.created_at, updated_at=connector.updated_at,
+            created_at=connector.created_at,
+            updated_at=connector.updated_at,
         )
 
-    def list_tenant_connectors(self, tenant_id: UUID, *, include_retired: bool = False) -> list[ConnectorSummaryResponse]:
-        connectors = self.repository.list_for_tenant(tenant_id, include_retired=include_retired)
+    def list_tenant_connectors(
+        self, tenant_id: UUID, *, include_retired: bool = False
+    ) -> list[ConnectorSummaryResponse]:
+        connectors = self.repository.list_for_tenant(
+            tenant_id, include_retired=include_retired
+        )
         self._recalculate_many(connectors, self.now())
         tenant = self.tenant_repository.get_by_id(tenant_id)
-        return [self._summary(connector, tenant_timezone=tenant.timezone if tenant else None) for connector in connectors]
+        return [
+            self._summary(
+                connector, tenant_timezone=tenant.timezone if tenant else None
+            )
+            for connector in connectors
+        ]
 
-    def list_platform_connectors(self, *, include_retired: bool = False) -> list[ConnectorSummaryResponse]:
+    def list_platform_connectors(
+        self, *, include_retired: bool = False
+    ) -> list[ConnectorSummaryResponse]:
         rows = self.repository.list_for_platform(include_retired=include_retired)
         self._recalculate_many([row[0] for row in rows], self.now())
-        return [self._summary(connector, tenant.display_name, tenant.slug, tenant.timezone) for connector, tenant in rows]
+        return [
+            self._summary(connector, tenant.display_name, tenant.slug, tenant.timezone)
+            for connector, tenant in rows
+        ]
 
-    def detail(self, connector: ManagedConnector, tenant_name: str | None = None, tenant_slug: str | None = None, tenant_timezone: str | None = None) -> ConnectorDetailResponse:
+    def detail(
+        self,
+        connector: ManagedConnector,
+        tenant_name: str | None = None,
+        tenant_slug: str | None = None,
+        tenant_timezone: str | None = None,
+    ) -> ConnectorDetailResponse:
         self._recalculate_many([connector], self.now())
-        summary = self._summary(connector, tenant_name, tenant_slug, tenant_timezone).model_dump()
+        summary = self._summary(
+            connector, tenant_name, tenant_slug, tenant_timezone
+        ).model_dump()
         return ConnectorDetailResponse(
             **summary,
-            capabilities=self.repository.list_capabilities(connector.tenant_id, connector.id),
-            recent_heartbeats=[ConnectorHeartbeatHistoryResponse.model_validate(item) for item in self.repository.recent_heartbeats(connector.tenant_id, connector.id)],
-            recent_events=[ConnectorEventResponse.model_validate(item) for item in self.repository.recent_events(connector.tenant_id, connector.id)],
+            capabilities=self.repository.list_capabilities(
+                connector.tenant_id, connector.id
+            ),
+            recent_heartbeats=[
+                ConnectorHeartbeatHistoryResponse.model_validate(item)
+                for item in self.repository.recent_heartbeats(
+                    connector.tenant_id, connector.id
+                )
+            ],
+            recent_events=[
+                ConnectorEventResponse.model_validate(item)
+                for item in self.repository.recent_events(
+                    connector.tenant_id, connector.id
+                )
+            ],
         )
 
-    def get_tenant_detail(self, tenant_id: UUID, connector_id: UUID) -> ConnectorDetailResponse:
+    def get_tenant_detail(
+        self, tenant_id: UUID, connector_id: UUID
+    ) -> ConnectorDetailResponse:
         connector = self.repository.get(tenant_id, connector_id)
         if connector is None:
             raise ConnectorServiceError("Connector not found.", 404)
         tenant = self.tenant_repository.get_by_id(tenant_id)
-        return self.detail(connector, tenant.display_name if tenant else None, tenant.slug if tenant else None, tenant.timezone if tenant else None)
+        return self.detail(
+            connector,
+            tenant.display_name if tenant else None,
+            tenant.slug if tenant else None,
+            tenant.timezone if tenant else None,
+        )
 
     def get_platform_detail(self, connector_id: UUID) -> ConnectorDetailResponse:
         connector = self.repository.get_unscoped(connector_id)
         if connector is None:
             raise ConnectorServiceError("Connector not found.", 404)
         tenant = self.tenant_repository.get_by_id(connector.tenant_id)
-        return self.detail(connector, tenant.display_name if tenant else None, tenant.slug if tenant else None, tenant.timezone if tenant else None)
+        return self.detail(
+            connector,
+            tenant.display_name if tenant else None,
+            tenant.slug if tenant else None,
+            tenant.timezone if tenant else None,
+        )
 
-    def retire(self, tenant_id: UUID, connector_id: UUID, actor: TenantUser) -> ConnectorDetailResponse:
+    def retire(
+        self, tenant_id: UUID, connector_id: UUID, actor: TenantUser
+    ) -> ConnectorDetailResponse:
         connector = self.repository.get(tenant_id, connector_id)
         if connector is None:
             raise ConnectorServiceError("Connector not found.", 404)
@@ -538,7 +810,14 @@ class ConnectorService:
             now = self.now()
             connector.retired_at = now
             connector.status = ManagedConnectorStatus.RETIRED
-            self._event(tenant_id, ConnectorEventType.RETIRED, connector_id=connector.id, actor_user_id=actor.id, detail="Connector retired by tenant administrator.", now=now)
+            self._event(
+                tenant_id,
+                ConnectorEventType.RETIRED,
+                connector_id=connector.id,
+                actor_user_id=actor.id,
+                detail="Connector retired by tenant administrator.",
+                now=now,
+            )
             self.repository.commit()
         return self.detail(connector)
 
@@ -549,8 +828,16 @@ class ConnectorService:
         expired_tokens = self.repository.list_unrecorded_expired_tokens(now)
         for token in expired_tokens:
             token.expiration_event_recorded_at = now
-            self._event(token.tenant_id, ConnectorEventType.REGISTRATION_TOKEN_EXPIRED, token_id=token.id, detail="Registration token expired.", now=now)
-        deleted = self.repository.delete_heartbeats_before(now - self.heartbeat_retention)
+            self._event(
+                token.tenant_id,
+                ConnectorEventType.REGISTRATION_TOKEN_EXPIRED,
+                token_id=token.id,
+                detail="Registration token expired.",
+                now=now,
+            )
+        deleted = self.repository.delete_heartbeats_before(
+            now - self.heartbeat_retention
+        )
         if deleted or expired_tokens:
             self.repository.commit()
         return len(connectors), deleted

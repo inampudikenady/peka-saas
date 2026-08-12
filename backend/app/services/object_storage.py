@@ -18,7 +18,9 @@ class StoredObject:
 
 
 class ObjectStorage(Protocol):
-    def put_stream(self, key: str, stream: BinaryIO, max_bytes: int) -> StoredObject: ...
+    def put_stream(
+        self, key: str, stream: BinaryIO, max_bytes: int
+    ) -> StoredObject: ...
     def open(self, key: str) -> BinaryIO: ...
     def delete(self, key: str) -> None: ...
     def exists(self, key: str) -> bool: ...
@@ -53,7 +55,9 @@ class LocalFilesystemObjectStorage:
         size = 0
         temporary_name: str | None = None
         try:
-            with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as temporary:
+            with tempfile.NamedTemporaryFile(
+                dir=destination.parent, delete=False
+            ) as temporary:
                 temporary_name = temporary.name
                 while chunk := stream.read(1024 * 1024):
                     size += len(chunk)
@@ -68,7 +72,9 @@ class LocalFilesystemObjectStorage:
         finally:
             if temporary_name is not None:
                 Path(temporary_name).unlink(missing_ok=True)
-        return StoredObject(key=key, size_bytes=size, sha256=f"sha256:{digest.hexdigest()}")
+        return StoredObject(
+            key=key, size_bytes=size, sha256=f"sha256:{digest.hexdigest()}"
+        )
 
     def open(self, key: str) -> BinaryIO:
         return self._path(key).open("rb")

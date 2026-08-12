@@ -145,6 +145,21 @@ it("ignores raw HTML and rejects unsafe link protocols", () => {
   expect(screen.queryByRole("link", { name: "unsafe" })).not.toBeInTheDocument();
 });
 
+it("renders connector-owned Zammad links with safe external navigation", () => {
+  render(
+    <AssistantMarkdown
+      content={"[#11004 — Reboot required](http://zammad.example.test/#ticket/zoom/123)"}
+      citations={[]}
+      onCitation={vi.fn()}
+    />,
+  );
+  const link = screen.getByRole("link", { name: "#11004 — Reboot required" });
+  expect(link).toHaveAttribute("href", "http://zammad.example.test/#ticket/zoom/123");
+  expect(link).toHaveAttribute("target", "_blank");
+  expect(link).toHaveAttribute("rel", expect.stringContaining("noopener"));
+  expect(link).toHaveAttribute("rel", expect.stringContaining("noreferrer"));
+});
+
 it("renders old plain text and incomplete streamed code fences safely", () => {
   const { rerender } = render(
     <AssistantMarkdown

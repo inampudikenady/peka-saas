@@ -76,9 +76,7 @@ def rename_conversation(
     service: AIConversationService = Depends(get_ai_conversation_service),
 ):
     try:
-        return service.rename(
-            tenant.tenant_id, user.id, conversation_id, payload.title
-        )
+        return service.rename(tenant.tenant_id, user.id, conversation_id, payload.title)
     except ConversationNotFoundError:
         raise _not_found()
 

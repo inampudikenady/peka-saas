@@ -6,7 +6,9 @@ from app.core.config import settings
 from app.core.tenant_registry import tenant_registry
 
 from app.repositories.platform_admin_repository import PlatformAdminRepository
-from app.repositories.platform_admin_invite_repository import PlatformAdminInviteRepository
+from app.repositories.platform_admin_invite_repository import (
+    PlatformAdminInviteRepository,
+)
 from app.repositories.tenant_repository import TenantRepository
 from app.repositories.tenant_admin_invite_repository import TenantAdminInviteRepository
 from app.repositories.tenant_user_repository import TenantUserRepository
@@ -16,7 +18,9 @@ from app.services.platform_admin_service import PlatformAdminService
 from app.services.platform_user_service import PlatformUserService
 from app.services.tenant_registry_manager import TenantRegistryManager
 from app.services.tenant_bootstrap_service import TenantBootstrapService
-from app.services.tenant_account_activation_service import TenantAccountActivationService
+from app.services.tenant_account_activation_service import (
+    TenantAccountActivationService,
+)
 from app.services.tenant_service import TenantService
 from app.services.tenant_sso_service import TenantSSOService
 from app.repositories.tenant_oidc_auth_session_repository import (
@@ -36,12 +40,9 @@ from app.services.tenant_platform_summary_service import TenantPlatformSummarySe
 from app.services.tenant_user_management_service import TenantUserManagementService
 from app.services.tenant_password_reset_service import TenantPasswordResetService
 from app.repositories.connector_repository import ConnectorRepository
-from app.repositories.document_repository import DocumentRepository
 from app.repositories.ai_conversation_repository import AIConversationRepository
 from app.services.connector_service import ConnectorService
-from app.services.knowledge_service import KnowledgeService
 from app.services.ai_conversation_service import AIConversationService
-from app.services.provider_factory import embedding_provider, vector_store
 
 
 def get_tenant_service(
@@ -137,7 +138,9 @@ def get_tenant_platform_summary_service(
 def get_tenant_user_management_service(
     db: Session = Depends(get_db),
 ) -> TenantUserManagementService:
-    return TenantUserManagementService(TenantUserRepository(db), TenantAdminInviteRepository(db), TenantRepository(db))
+    return TenantUserManagementService(
+        TenantUserRepository(db), TenantAdminInviteRepository(db), TenantRepository(db)
+    )
 
 
 def get_tenant_password_reset_service(
@@ -151,17 +154,6 @@ def get_connector_service(db: Session = Depends(get_db)) -> ConnectorService:
         ConnectorRepository(db),
         TenantRepository(db),
         connector_limit=settings.connector_max_active_per_tenant,
-    )
-
-
-def get_knowledge_service(
-    db: Session = Depends(get_db),
-) -> KnowledgeService:
-    """Compose the sole tenant retrieval boundary outside its consumers."""
-    return KnowledgeService(
-        DocumentRepository(db),
-        embedding_provider(),
-        vector_store(),
     )
 
 

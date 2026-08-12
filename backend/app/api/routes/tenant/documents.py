@@ -9,14 +9,19 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.auth import allow_tenant_user, require_tenant_admin
-from app.api.dependencies import get_knowledge_service
 from app.api.tenant_context import get_current_tenant_context
 from app.core.tenant_context import TenantContext
 from app.db.session import get_db
 from app.models.document import (
-    Document, DocumentAuditEvent, DocumentChunk, DocumentLifecycleStatus,
+    Document,
+    DocumentAuditEvent,
+    DocumentChunk,
+    DocumentLifecycleStatus,
     DocumentVersion,
-    IngestionJob, IngestionJobState, IngestionJobType, IngestionStatus,
+    IngestionJob,
+    IngestionJobState,
+    IngestionJobType,
+    IngestionStatus,
 )
 from app.models.connector import ManagedConnector
 from app.models.connector import ManagedConnectorStatus
@@ -24,14 +29,23 @@ from app.core.config import settings
 from app.models.tenant_user import TenantUser
 from app.repositories.document_repository import DocumentRepository
 from app.schemas.document_api import (
-    DocumentListItem, DocumentVersionView, DocumentView, PipelineValidationResponse,
-    IngestionHealthView, SearchRequest, SearchResponse,
+    DocumentListItem,
+    DocumentVersionView,
+    DocumentView,
+    PipelineValidationResponse,
+    IngestionHealthView,
+    SearchRequest,
+    SearchResponse,
 )
 from app.services.embedding_provider import EmbeddingProviderNotConfigured
 from app.services.knowledge_service import KnowledgeFilterError, KnowledgeService
 from app.services.knowledge_pipeline_diagnostics import KnowledgePipelineDiagnostics
 from app.services.knowledge_runtime_health import embedding_health, qdrant_health
-from app.services.provider_factory import embedding_provider, object_storage, vector_store
+from app.services.provider_factory import (
+    embedding_provider,
+    object_storage,
+    vector_store,
+)
 from app.services.ingestion_runtime import ingestion_runtime
 
 
@@ -39,7 +53,23 @@ router = APIRouter(prefix="/tenant")
 logger = logging.getLogger(__name__)
 
 
-def _pipeline_state(version, chunk_count: int, is_deleted: bool) -> tuple[str, bool, bool]:
+def get_knowledge_service(db: Session = Depends(get_db)) -> KnowledgeService:
+    """Build the retained migration-only knowledge service.
+
+    This router is intentionally not registered by the normal SaaS application.
+    Keeping the dependency local prevents customer-document providers from being
+    initialized through the control-plane dependency module.
+    """
+    return KnowledgeService(
+        DocumentRepository(db),
+        embedding_provider(),
+        vector_store(),
+    )
+
+
+def _pipeline_state(
+    version, chunk_count: int, is_deleted: bool
+) -> tuple[str, bool, bool]:
     if version is None:
         return "Pending", False, False
     if version.error_code == "NOT_CONFIGURED":
@@ -107,7 +137,10 @@ def _processing_state(
         else version.error_code
     )
     if error_code == "NOT_CONFIGURED":
-        return "Blocked: embedding not configured", "Embedding provider is not configured."
+        return (
+            "Blocked: embedding not configured",
+            "Embedding provider is not configured.",
+        )
     if error_code == "EMBEDDING_UNAVAILABLE":
         return "Blocked: embedding unavailable", "Embedding endpoint is unavailable."
     if error_code == "QDRANT_UNAVAILABLE":
@@ -172,7 +205,9 @@ def _source_freshness(repository: DocumentRepository, document) -> str:
     return "current"
 
 
-def _source_connector(repository: DocumentRepository, document) -> tuple[str | None, str]:
+def _source_connector(
+    repository: DocumentRepository, document
+) -> tuple[str | None, str]:
     connector = (
         repository.session.get(ManagedConnector, document.last_seen_by_connector_id)
         if document.last_seen_by_connector_id
@@ -199,24 +234,33 @@ def _version_view(version) -> DocumentVersionView | None:
     if version is None:
         return None
     return DocumentVersionView(
-        id=version.id, content_hash=version.content_hash, size_bytes=version.size_bytes,
-        ingestion_status=version.ingestion_status.value, storage_status=version.storage_status.value,
+        id=version.id,
+        content_hash=version.content_hash,
+        size_bytes=version.size_bytes,
+        ingestion_status=version.ingestion_status.value,
+        storage_status=version.storage_status.value,
         parser_name=version.parser_name,
         detected_format=version.detected_format,
         source_format=version.source_format,
         format_detection_confidence=version.format_detection_confidence,
         format_detection_reason=version.format_detection_reason,
         chunker_name=version.chunker_name,
-        embedding_provider=version.embedding_provider, embedding_model=version.embedding_model,
-        received_at=version.received_at, stored_at=version.stored_at,
-        queued_at=version.queued_at, parsing_started_at=version.parsing_started_at,
-        parsed_at=version.parsed_at, chunking_started_at=version.chunking_started_at,
-        chunked_at=version.chunked_at, embedding_started_at=version.embedding_started_at,
+        embedding_provider=version.embedding_provider,
+        embedding_model=version.embedding_model,
+        received_at=version.received_at,
+        stored_at=version.stored_at,
+        queued_at=version.queued_at,
+        parsing_started_at=version.parsing_started_at,
+        parsed_at=version.parsed_at,
+        chunking_started_at=version.chunking_started_at,
+        chunked_at=version.chunked_at,
+        embedding_started_at=version.embedding_started_at,
         embedding_completed_at=version.embedding_completed_at,
         indexing_started_at=version.indexing_started_at,
         indexing_completed_at=version.indexing_completed_at,
         indexed_at=version.indexed_at,
-        error_code=version.error_code, error_message=version.safe_error_message,
+        error_code=version.error_code,
+        error_message=version.safe_error_message,
     )
 
 
@@ -226,12 +270,24 @@ def _document_view(
     *,
     vector_points_available: bool | None = None,
 ) -> DocumentView:
-    version = repository.get_version(document.tenant_id, document.current_version_id) if document.current_version_id else None
-    chunk_count = 0 if version is None else repository.session.scalar(
-        select(func.count()).select_from(DocumentChunk).where(
-            DocumentChunk.tenant_id == document.tenant_id, DocumentChunk.version_id == version.id
+    version = (
+        repository.get_version(document.tenant_id, document.current_version_id)
+        if document.current_version_id
+        else None
+    )
+    chunk_count = (
+        0
+        if version is None
+        else repository.session.scalar(
+            select(func.count())
+            .select_from(DocumentChunk)
+            .where(
+                DocumentChunk.tenant_id == document.tenant_id,
+                DocumentChunk.version_id == version.id,
+            )
         )
-    ) or 0
+        or 0
+    )
     versions = repository.list_versions(document.tenant_id, document.id)
     embedding_status, indexed, searchable = _pipeline_state(
         version, chunk_count, document.is_deleted
@@ -253,9 +309,7 @@ def _document_view(
     if processing_status == "Indexed":
         processing_status = f"Indexed / {source_freshness}"
     if indexed and not vector_points_available:
-        processing_status = (
-            f"Indexed / {source_freshness} / vector index missing"
-        )
+        processing_status = f"Indexed / {source_freshness} / vector index missing"
         blocking_reason = (
             "PostgreSQL contains indexed metadata, but the configured Qdrant "
             "collection has no searchable points. Re-index this document."
@@ -264,7 +318,8 @@ def _document_view(
         _delete_eligibility(repository, document)
     )
     return DocumentView(
-        id=document.id, connector_id=document.connector_id,
+        id=document.id,
+        connector_id=document.connector_id,
         created_by_connector_id=document.created_by_connector_id,
         last_seen_by_connector_id=document.last_seen_by_connector_id,
         last_synchronized_at=document.last_synchronized_at,
@@ -272,20 +327,28 @@ def _document_view(
         source_connector_name=source_connector_name,
         source_connector_status=source_connector_status,
         source_id=document.source_id,
-        document_key=document.document_key, filename=document.filename,
+        document_key=document.document_key,
+        filename=document.filename,
         extension=document.extension,
-        relative_path=document.relative_path, mime_type=document.mime_type,
-        is_deleted=document.is_deleted, current_version=_version_view(version),
-        versions=[view for item in versions if (view := _version_view(item)) is not None],
-        chunk_count=chunk_count, embedding_status=embedding_status,
-        indexed=indexed, searchable=searchable,
+        relative_path=document.relative_path,
+        mime_type=document.mime_type,
+        is_deleted=document.is_deleted,
+        current_version=_version_view(version),
+        versions=[
+            view for item in versions if (view := _version_view(item)) is not None
+        ],
+        chunk_count=chunk_count,
+        embedding_status=embedding_status,
+        indexed=indexed,
+        searchable=searchable,
         processing_status=processing_status,
         blocking_reason=blocking_reason,
         delete_eligible=delete_eligible,
         delete_unavailable_reason=delete_unavailable_reason,
         deletion_in_progress=deletion_in_progress,
         worker_status=_worker_state(repository),
-        created_at=document.created_at, updated_at=document.updated_at,
+        created_at=document.created_at,
+        updated_at=document.updated_at,
     )
 
 
@@ -302,14 +365,22 @@ def list_documents(
     for document in repository.list_documents(tenant.tenant_id, include_deleted):
         version = (
             repository.get_version(document.tenant_id, document.current_version_id)
-            if document.current_version_id else None
+            if document.current_version_id
+            else None
         )
-        chunk_count = 0 if version is None else repository.session.scalar(
-            select(func.count()).select_from(DocumentChunk).where(
-                DocumentChunk.tenant_id == document.tenant_id,
-                DocumentChunk.version_id == version.id,
+        chunk_count = (
+            0
+            if version is None
+            else repository.session.scalar(
+                select(func.count())
+                .select_from(DocumentChunk)
+                .where(
+                    DocumentChunk.tenant_id == document.tenant_id,
+                    DocumentChunk.version_id == version.id,
+                )
             )
-        ) or 0
+            or 0
+        )
         embedding_status, indexed, searchable = _pipeline_state(
             version, chunk_count, document.is_deleted
         )
@@ -330,9 +401,7 @@ def list_documents(
         if processing_status == "Indexed":
             processing_status = f"Indexed / {source_freshness}"
         if indexed and not searchable:
-            processing_status = (
-                f"Indexed / {source_freshness} / vector index missing"
-            )
+            processing_status = f"Indexed / {source_freshness} / vector index missing"
             blocking_reason = (
                 "PostgreSQL contains indexed metadata, but the configured Qdrant "
                 "collection has no searchable points. Re-index this document."
@@ -340,39 +409,49 @@ def list_documents(
         delete_eligible, delete_unavailable_reason, deletion_in_progress = (
             _delete_eligibility(repository, document)
         )
-        response.append(DocumentListItem(
-            id=document.id, connector_id=document.connector_id,
-            created_by_connector_id=document.created_by_connector_id,
-            last_seen_by_connector_id=document.last_seen_by_connector_id,
-            last_synchronized_at=document.last_synchronized_at,
-            source_freshness=source_freshness,
-            source_connector_name=source_connector_name,
-            source_connector_status=source_connector_status,
-            source_id=document.source_id, filename=document.filename,
-            extension=document.extension,
-            mime_type=document.mime_type,
-            detected_format=version.detected_format if version else None,
-            source_format=version.source_format if version else None,
-            format_detection_confidence=(
-                version.format_detection_confidence if version else None
-            ),
-            format_detection_reason=(
-                version.format_detection_reason if version else None
-            ),
-            ingestion_status=(
-                "DELETED" if document.is_deleted
-                else version.ingestion_status.value if version else "RECEIVED"
-            ),
-            chunk_count=chunk_count, embedding_status=embedding_status,
-            indexed=indexed, searchable=searchable,
-            processing_status=processing_status,
-            blocking_reason=blocking_reason,
-            delete_eligible=delete_eligible,
-            delete_unavailable_reason=delete_unavailable_reason,
-            deletion_in_progress=deletion_in_progress,
-            worker_status=_worker_state(repository),
-            is_deleted=document.is_deleted, updated_at=document.updated_at,
-        ))
+        response.append(
+            DocumentListItem(
+                id=document.id,
+                connector_id=document.connector_id,
+                created_by_connector_id=document.created_by_connector_id,
+                last_seen_by_connector_id=document.last_seen_by_connector_id,
+                last_synchronized_at=document.last_synchronized_at,
+                source_freshness=source_freshness,
+                source_connector_name=source_connector_name,
+                source_connector_status=source_connector_status,
+                source_id=document.source_id,
+                filename=document.filename,
+                extension=document.extension,
+                mime_type=document.mime_type,
+                detected_format=version.detected_format if version else None,
+                source_format=version.source_format if version else None,
+                format_detection_confidence=(
+                    version.format_detection_confidence if version else None
+                ),
+                format_detection_reason=(
+                    version.format_detection_reason if version else None
+                ),
+                ingestion_status=(
+                    "DELETED"
+                    if document.is_deleted
+                    else version.ingestion_status.value
+                    if version
+                    else "RECEIVED"
+                ),
+                chunk_count=chunk_count,
+                embedding_status=embedding_status,
+                indexed=indexed,
+                searchable=searchable,
+                processing_status=processing_status,
+                blocking_reason=blocking_reason,
+                delete_eligible=delete_eligible,
+                delete_unavailable_reason=delete_unavailable_reason,
+                deletion_in_progress=deletion_in_progress,
+                worker_status=_worker_state(repository),
+                is_deleted=document.is_deleted,
+                updated_at=document.updated_at,
+            )
+        )
     return response
 
 
@@ -391,23 +470,37 @@ def ingestion_health(
     ]
     processing_states = [IngestionJobState.IN_PROGRESS, IngestionJobState.RUNNING]
     failed_states = [IngestionJobState.FAILED, IngestionJobState.FAILED_PERMANENT]
-    count_for = lambda states: db.scalar(
-        select(func.count()).select_from(IngestionJob).where(
-            IngestionJob.tenant_id == tenant.tenant_id,
-            IngestionJob.state.in_(states),
+
+    def count_for(states):
+        return (
+            db.scalar(
+                select(func.count())
+                .select_from(IngestionJob)
+                .where(
+                    IngestionJob.tenant_id == tenant.tenant_id,
+                    IngestionJob.state.in_(states),
+                )
+            )
+            or 0
         )
-    ) or 0
+
     latest_claimed = db.scalar(
-        select(IngestionJob).where(
+        select(IngestionJob)
+        .where(
             IngestionJob.tenant_id == tenant.tenant_id,
             IngestionJob.started_at.is_not(None),
-        ).order_by(IngestionJob.started_at.desc()).limit(1)
+        )
+        .order_by(IngestionJob.started_at.desc())
+        .limit(1)
     )
     latest_success = db.scalar(
-        select(IngestionJob).where(
+        select(IngestionJob)
+        .where(
             IngestionJob.tenant_id == tenant.tenant_id,
             IngestionJob.state == IngestionJobState.SUCCEEDED,
-        ).order_by(IngestionJob.completed_at.desc()).limit(1)
+        )
+        .order_by(IngestionJob.completed_at.desc())
+        .limit(1)
     )
     latest_failed = db.scalar(
         select(IngestionJob)
@@ -420,43 +513,47 @@ def ingestion_health(
             Document.is_deleted.is_(False),
             DocumentVersion.error_code.is_not(None),
         )
-        .order_by(
-            IngestionJob.completed_at.desc(), IngestionJob.updated_at.desc()
-        )
+        .order_by(IngestionJob.completed_at.desc(), IngestionJob.updated_at.desc())
         .limit(1)
     )
     worker_status = _worker_state(repository)
     embeddings = embedding_health(verify=False)
     vectors = qdrant_health()
-    indexed_document_count = db.scalar(
-        select(func.count(func.distinct(Document.id)))
-        .select_from(Document)
-        .join(
-            DocumentVersion,
-            DocumentVersion.id == Document.current_version_id,
+    indexed_document_count = (
+        db.scalar(
+            select(func.count(func.distinct(Document.id)))
+            .select_from(Document)
+            .join(
+                DocumentVersion,
+                DocumentVersion.id == Document.current_version_id,
+            )
+            .join(
+                DocumentChunk,
+                DocumentChunk.version_id == DocumentVersion.id,
+            )
+            .where(
+                Document.tenant_id == tenant.tenant_id,
+                DocumentVersion.ingestion_status == IngestionStatus.INDEXED,
+            )
         )
-        .join(
-            DocumentChunk,
-            DocumentChunk.version_id == DocumentVersion.id,
+        or 0
+    )
+    failed_document_count = (
+        db.scalar(
+            select(func.count(func.distinct(Document.id)))
+            .select_from(Document)
+            .join(
+                DocumentVersion,
+                DocumentVersion.id == Document.current_version_id,
+            )
+            .where(
+                Document.tenant_id == tenant.tenant_id,
+                Document.is_deleted.is_(False),
+                DocumentVersion.error_code.is_not(None),
+            )
         )
-        .where(
-            Document.tenant_id == tenant.tenant_id,
-            DocumentVersion.ingestion_status == IngestionStatus.INDEXED,
-        )
-    ) or 0
-    failed_document_count = db.scalar(
-        select(func.count(func.distinct(Document.id)))
-        .select_from(Document)
-        .join(
-            DocumentVersion,
-            DocumentVersion.id == Document.current_version_id,
-        )
-        .where(
-            Document.tenant_id == tenant.tenant_id,
-            Document.is_deleted.is_(False),
-            DocumentVersion.error_code.is_not(None),
-        )
-    ) or 0
+        or 0
+    )
     remediation = None
     if worker_status in {"Not running", "Stale", "Stopped"}:
         remediation = "Restart the PEKA backend; the in-process ingestion runtime starts with FastAPI."
@@ -488,7 +585,9 @@ def ingestion_health(
         processing_job_count=count_for(processing_states),
         failed_job_count=failed_document_count,
         latest_job_claimed_at=latest_claimed.started_at if latest_claimed else None,
-        latest_successful_job_at=latest_success.completed_at if latest_success else None,
+        latest_successful_job_at=latest_success.completed_at
+        if latest_success
+        else None,
         latest_safe_error=latest_failed.safe_error_message if latest_failed else None,
         embedding_status=str(embeddings["status"]),
         qdrant_status=str(vectors["status"]),
@@ -519,10 +618,13 @@ def _enqueue_document_job(
 ) -> DocumentView:
     version = (
         repository.get_version(document.tenant_id, document.current_version_id)
-        if document.current_version_id else None
+        if document.current_version_id
+        else None
     )
     if job_type != IngestionJobType.DELETE_FROM_INDEX and version is None:
-        raise HTTPException(status_code=409, detail="Document has no version to process.")
+        raise HTTPException(
+            status_code=409, detail="Document has no version to process."
+        )
     active_job = (
         repository.active_job_for_document_stage(document.id, job_type)
         if job_type == IngestionJobType.DELETE_FROM_INDEX
@@ -537,17 +639,25 @@ def _enqueue_document_job(
             version.id if version is not None else None,
             job_type,
         )
-    repository.add(DocumentAuditEvent(
-        tenant_id=document.tenant_id, document_id=document.id,
-        version_id=version.id if version is not None else None,
-        actor_user_id=actor.id, action=action,
-    ))
+    repository.add(
+        DocumentAuditEvent(
+            tenant_id=document.tenant_id,
+            document_id=document.id,
+            version_id=version.id if version is not None else None,
+            actor_user_id=actor.id,
+            action=action,
+        )
+    )
     repository.commit()
     ingestion_runtime.notify()
     logger.info(
         "Tenant document action requested",
-        extra={"tenant_id": str(document.tenant_id), "document_id": str(document.id),
-               "stage": job_type.value, "action": action},
+        extra={
+            "tenant_id": str(document.tenant_id),
+            "document_id": str(document.id),
+            "stage": job_type.value,
+            "action": action,
+        },
     )
     return _document_view(repository, document)
 
@@ -563,7 +673,11 @@ def retry_document(
     document = repository.get_document(tenant.tenant_id, document_id)
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
-    version = repository.get_version(tenant.tenant_id, document.current_version_id) if document.current_version_id else None
+    version = (
+        repository.get_version(tenant.tenant_id, document.current_version_id)
+        if document.current_version_id
+        else None
+    )
     blocked = bool(
         version
         and version.ingestion_status == IngestionStatus.CHUNKED
@@ -605,9 +719,15 @@ def reindex_document(
     if document is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     if document.is_deleted:
-        raise HTTPException(status_code=409, detail="Deleted documents cannot be re-indexed.")
+        raise HTTPException(
+            status_code=409, detail="Deleted documents cannot be re-indexed."
+        )
     return _enqueue_document_job(
-        repository, document, IngestionJobType.REINDEX_DOCUMENT, user, "REINDEX_REQUESTED"
+        repository,
+        document,
+        IngestionJobType.REINDEX_DOCUMENT,
+        user,
+        "REINDEX_REQUESTED",
     )
 
 
@@ -655,8 +775,11 @@ def delete_document(
     document.lifecycle_status = DocumentLifecycleStatus.DELETED
     document.deleted_at = datetime.now(UTC)
     return _enqueue_document_job(
-        repository, document, IngestionJobType.DELETE_FROM_INDEX,
-        user, "SOFT_DELETE_REQUESTED",
+        repository,
+        document,
+        IngestionJobType.DELETE_FROM_INDEX,
+        user,
+        "SOFT_DELETE_REQUESTED",
     )
 
 
@@ -690,6 +813,8 @@ def search_documents(
     try:
         return knowledge.search(tenant.tenant_id, payload)
     except (EmbeddingProviderNotConfigured, RuntimeError) as exc:
-        raise HTTPException(status_code=503, detail="Document search is not configured.") from exc
+        raise HTTPException(
+            status_code=503, detail="Document search is not configured."
+        ) from exc
     except KnowledgeFilterError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

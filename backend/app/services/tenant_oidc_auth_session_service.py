@@ -73,7 +73,6 @@ class TenantOIDCAuthSessionService:
         session.used_at = datetime.now(UTC)
         self.repository.commit()
 
-
     @staticmethod
     def hash_state(state: str) -> str:
         return hashlib.sha256(state.encode("utf-8")).hexdigest()

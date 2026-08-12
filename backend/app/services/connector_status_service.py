@@ -8,11 +8,16 @@ class ConnectorStatusService:
 
     authentication_failure_threshold = 3
 
-    def derive(self, connector: ManagedConnector, now: datetime | None = None) -> ManagedConnectorStatus:
+    def derive(
+        self, connector: ManagedConnector, now: datetime | None = None
+    ) -> ManagedConnectorStatus:
         now = now or datetime.now(UTC)
         if connector.retired_at is not None:
             return ManagedConnectorStatus.RETIRED
-        if connector.authentication_failure_count >= self.authentication_failure_threshold:
+        if (
+            connector.authentication_failure_count
+            >= self.authentication_failure_threshold
+        ):
             return ManagedConnectorStatus.AUTHENTICATION_FAILED
         if connector.last_heartbeat_at is None:
             return ManagedConnectorStatus.DISCONNECTED
@@ -30,7 +35,9 @@ class ConnectorStatusService:
             return ManagedConnectorStatus.DEGRADED
         return ManagedConnectorStatus.CONNECTED
 
-    def recalculate(self, connector: ManagedConnector, now: datetime | None = None) -> tuple[ManagedConnectorStatus, ManagedConnectorStatus]:
+    def recalculate(
+        self, connector: ManagedConnector, now: datetime | None = None
+    ) -> tuple[ManagedConnectorStatus, ManagedConnectorStatus]:
         previous = connector.status
         current = self.derive(connector, now)
         connector.status = current
@@ -40,6 +47,9 @@ class ConnectorStatusService:
             connector.consecutive_missed_heartbeats = 2
         elif current == ManagedConnectorStatus.DISCONNECTED:
             connector.consecutive_missed_heartbeats = 3
-        elif current not in (ManagedConnectorStatus.AUTHENTICATION_FAILED, ManagedConnectorStatus.RETIRED):
+        elif current not in (
+            ManagedConnectorStatus.AUTHENTICATION_FAILED,
+            ManagedConnectorStatus.RETIRED,
+        ):
             connector.consecutive_missed_heartbeats = 0
         return previous, current

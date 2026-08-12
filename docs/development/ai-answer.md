@@ -1,18 +1,25 @@
 # Local AI Answer Development
 
-PEKA uses native Ollama on macOS for chat and embeddings. Do not create an
-Ollama Docker service for this runtime.
+> The Qdrant setup and `/health/knowledge` instructions below describe the
+> retained legacy migration stack. Normal SaaS chat retrieves knowledge through
+> an authenticated Connector operational request and does not require Qdrant.
+
+PEKA uses native Ollama on macOS for chat and embeddings. Ollama is managed
+outside this repository and is not started by PEKA.
 
 ## Required services
 
 Start the existing local development stack in separate terminals:
 
 1. PostgreSQL using the project's existing local configuration.
-2. Qdrant:
+2. Native or externally managed Qdrant:
 
    ```bash
-   docker compose -f docker-compose.qdrant.yml up -d
+   qdrant
    ```
+
+   The command depends on the host installation. PEKA only requires the URL in
+   `PEKA_QDRANT_URL` to be reachable; Qdrant is not started by the application.
 
 3. Native Ollama (installed outside this repository):
 
@@ -132,9 +139,11 @@ npm run build
 From the repository root:
 
 ```bash
-docker compose -f docker-compose.qdrant.yml config
 git diff --check
 ```
+
+Optional disposable dependency testing is documented in
+[Testing](testing.md). It does not run the backend or frontend in containers.
 
 ## Operational behavior
 

@@ -56,11 +56,17 @@ export type ManagedConnector = {
   registered_at: string; last_heartbeat_at: string | null; last_seen_at: string | null;
   heartbeat_interval_seconds: number; source_total: number; source_healthy: number;
   source_unhealthy: number; source_disabled: number; retired_at: string | null;
+  local_knowledge_store_status?: "healthy" | "degraded" | "unavailable" | null;
+  knowledge_document_count?: number; knowledge_indexed_chunk_count?: number;
+  last_knowledge_index_activity_at?: string | null;
   created_at: string; updated_at: string;
 };
 export type ConnectorHeartbeat = {
   received_at: string; reported_at: string; version: string; reported_status: string; uptime_seconds: number;
   source_total: number; source_healthy: number; source_unhealthy: number; source_disabled: number; accepted: boolean;
+  local_knowledge_store_status?: "healthy" | "degraded" | "unavailable" | null;
+  knowledge_document_count?: number; knowledge_indexed_chunk_count?: number;
+  last_knowledge_index_activity_at?: string | null;
 };
 export type ConnectorEvent = { event_type: string; occurred_at: string; detail: string | null };
 export type ConnectorDetail = ManagedConnector & { capabilities: string[]; recent_heartbeats: ConnectorHeartbeat[]; recent_events: ConnectorEvent[] };
@@ -69,11 +75,6 @@ export type RegistrationToken = {
   created_at: string; revoked_at: string | null; intended_connector_name: string | null; status: "active" | "used" | "expired" | "revoked";
 };
 export type RegistrationTokenCreated = RegistrationToken & { registration_token: string };
-export type DocumentVersion = { id:string;content_hash:string;size_bytes:number;ingestion_status:string;storage_status:string;parser_name:string|null;detected_format:string|null;source_format:string|null;format_detection_confidence:number|null;format_detection_reason:string|null;chunker_name:string|null;embedding_provider:string|null;embedding_model:string|null;received_at:string;stored_at:string|null;queued_at:string|null;parsing_started_at:string|null;parsed_at:string|null;chunking_started_at:string|null;chunked_at:string|null;embedding_started_at:string|null;embedding_completed_at:string|null;indexing_started_at:string|null;indexing_completed_at:string|null;indexed_at:string|null;error_code:string|null;error_message:string|null };
-export type IngestionHealth = {runtime_mode:string;worker_status:string;last_heartbeat_at:string|null;runtime_started_at:string|null;current_job_id:string|null;queued_job_count:number;processing_job_count:number;failed_job_count:number;latest_job_claimed_at:string|null;latest_successful_job_at:string|null;latest_safe_error:string|null;embedding_status:string;qdrant_status:string;remediation:string|null};
-export type DocumentDeletionState = {delete_eligible:boolean;delete_unavailable_reason:string|null;deletion_in_progress:boolean};
-export type ManagedDocument = DocumentDeletionState & { id:string;connector_id:string|null;created_by_connector_id:string|null;last_seen_by_connector_id:string|null;last_synchronized_at:string|null;source_freshness:"current"|"stale"|"historical";source_connector_name:string|null;source_connector_status:string;source_id:string;document_key:string;filename:string;extension:string;relative_path:string;mime_type:string;is_deleted:boolean;current_version:DocumentVersion|null;versions:DocumentVersion[];chunk_count:number;embedding_status:string;indexed:boolean;searchable:boolean;processing_status:string;blocking_reason:string|null;worker_status:string;created_at:string;updated_at:string };
-export type ManagedDocumentListItem = DocumentDeletionState & { id:string;connector_id:string|null;created_by_connector_id:string|null;last_seen_by_connector_id:string|null;last_synchronized_at:string|null;source_freshness:"current"|"stale"|"historical";source_connector_name:string|null;source_connector_status:string;source_id:string;filename:string;mime_type:string;ingestion_status:string;processing_status:string;blocking_reason:string|null;worker_status:string;chunk_count:number;embedding_status:string;indexed:boolean;searchable:boolean;is_deleted:boolean;updated_at:string };
 export type AIAnswerFilters = { connector_id?:string|null;source_id?:string|null;document_id?:string|null };
 export type AIAnswerRequest = { query:string;top_k?:number;filters?:AIAnswerFilters;conversation_id?:string|null };
 export type AIAnswerCitation = {

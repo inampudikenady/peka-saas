@@ -3,7 +3,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.platform_admin_invite import PlatformAdminInvite, PlatformAdminInvitePurpose
+from app.models.platform_admin_invite import (
+    PlatformAdminInvite,
+    PlatformAdminInvitePurpose,
+)
 from app.repositories.base import BaseRepository
 
 
@@ -12,9 +15,15 @@ class PlatformAdminInviteRepository(BaseRepository[PlatformAdminInvite]):
         super().__init__(db, PlatformAdminInvite)
 
     def get_by_token_hash(self, token_hash: str) -> PlatformAdminInvite | None:
-        return self.db.scalar(select(PlatformAdminInvite).where(PlatformAdminInvite.token_hash == token_hash))
+        return self.db.scalar(
+            select(PlatformAdminInvite).where(
+                PlatformAdminInvite.token_hash == token_hash
+            )
+        )
 
-    def get_unused(self, user_id: UUID, purpose: PlatformAdminInvitePurpose) -> list[PlatformAdminInvite]:
+    def get_unused(
+        self, user_id: UUID, purpose: PlatformAdminInvitePurpose
+    ) -> list[PlatformAdminInvite]:
         stmt = select(PlatformAdminInvite).where(
             PlatformAdminInvite.user_id == user_id,
             PlatformAdminInvite.purpose == purpose,

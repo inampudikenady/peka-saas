@@ -14,7 +14,11 @@ from app.core.config import settings
 from app.db.session import SessionLocal
 from app.repositories.document_repository import DocumentRepository
 from app.services.ingestion_worker import IngestionWorker
-from app.services.provider_factory import embedding_provider, object_storage, vector_store
+from app.services.provider_factory import (
+    embedding_provider,
+    object_storage,
+    vector_store,
+)
 
 
 logging.basicConfig(level=settings.log_level)
@@ -28,7 +32,9 @@ def single_worker_lock():
         try:
             fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
-            raise RuntimeError("Another local ingestion worker is already running.") from exc
+            raise RuntimeError(
+                "Another local ingestion worker is already running."
+            ) from exc
         yield
 
 

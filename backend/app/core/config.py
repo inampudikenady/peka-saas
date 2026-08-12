@@ -50,8 +50,8 @@ class Settings(BaseSettings):
     connector_maintenance_interval_seconds: int = Field(default=60, ge=10)
     connector_max_active_per_tenant: int | None = Field(default=None, ge=1)
 
-    # Document ingestion providers. Production deployments must explicitly
-    # configure non-test embedding and vector providers.
+    # Legacy document-plane settings are migration-only. The normal SaaS app does
+    # not initialize, ingest, embed, or retrieve through these providers.
     peka_object_storage_backend: str = "local"
     peka_object_storage_local_root: str = "/tmp/peka-saas-documents"
     peka_s3_endpoint: str | None = None

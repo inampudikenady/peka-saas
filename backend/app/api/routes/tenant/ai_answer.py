@@ -12,8 +12,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import select
 
-from app.api.dependencies import get_ai_conversation_service, get_knowledge_service
+from app.api.dependencies import get_ai_conversation_service
 from app.api.auth import allow_tenant_user
 from app.api.tenant_context import get_current_tenant_context
 from app.core.logging import request_id_ctx
@@ -26,15 +27,17 @@ from app.schemas.ai_answer import (
     AIAnswerErrorResponse,
     AIAnswerRequest,
     AIAnswerResponse,
+    AIRetrievalSummary,
     AIPromptSuggestionsResponse,
 )
-from app.repositories.document_repository import DocumentRepository
+from app.models.connector import ManagedConnector
 from app.services.ai_answer_service import AIAnswerError, AIAnswerService
 from app.services.assistant_operational import (
     OperationalAssistantService,
+    build_operational_context,
     classify_assistant_intent,
 )
-from app.services.knowledge_service import KnowledgeService
+from app.services.connector_knowledge_service import ConnectorKnowledgeService
 from app.services.ai_conversation_service import (
     AIConversationService,
     ConversationGenerationInProgressError,
@@ -55,36 +58,36 @@ def prompt_suggestions(
     _user: TenantUser = Depends(allow_tenant_user),
     db: Session = Depends(get_db),
 ) -> AIPromptSuggestionsResponse:
-    filenames = DocumentRepository(db).list_indexed_document_titles(
-        tenant.tenant_id,
+    connector = db.scalar(
+        select(ManagedConnector).where(
+            ManagedConnector.tenant_id == tenant.tenant_id,
+            ManagedConnector.retired_at.is_(None),
+            ManagedConnector.local_knowledge_store_status == "healthy",
+            ManagedConnector.knowledge_document_count > 0,
+        )
     )
-    if not filenames:
+    if connector is None:
         return AIPromptSuggestionsResponse(
             has_indexed_knowledge=False,
             onboarding_guidance=(
-                "Index tenant documents or connect a knowledge source before "
-                "asking PEKA organization-specific questions."
+                "Add documents to the Connector's Local Knowledge Store before "
+                "asking organization-specific questions."
             ),
         )
-    suggestions = []
-    for index, filename in enumerate(filenames):
-        title = filename.rsplit(".", 1)[0].replace("_", " ").replace("-", " ").strip()
-        if index == 0:
-            suggestions.append(f"Summarize {title}.")
-        elif index == 1:
-            suggestions.append(f"What are the key procedures in {title}?")
-        else:
-            suggestions.append(f"What should I know about {title}?")
     return AIPromptSuggestionsResponse(
         has_indexed_knowledge=True,
-        suggestions=suggestions,
+        suggestions=[
+            "Summarize the available operational guidance.",
+            "What troubleshooting procedures are documented?",
+            "What should I know before making a production change?",
+        ],
     )
 
 
 def get_ai_answer_service(
-    knowledge: KnowledgeService = Depends(get_knowledge_service),
+    db: Session = Depends(get_db),
 ) -> AIAnswerService:
-    return AIAnswerService(knowledge, chat_provider())
+    return AIAnswerService(ConnectorKnowledgeService(db), chat_provider())
 
 
 def _status_for(code: AIAnswerErrorCode) -> int:
@@ -131,9 +134,7 @@ async def answer(
     tenant: TenantContext = Depends(get_current_tenant_context),
     user: TenantUser = Depends(allow_tenant_user),
     service: AIAnswerService = Depends(get_ai_answer_service),
-    conversation_service: AIConversationService = Depends(
-        get_ai_conversation_service
-    ),
+    conversation_service: AIConversationService = Depends(get_ai_conversation_service),
     db: Session = Depends(get_db),
 ) -> AIAnswerResponse | JSONResponse:
     request_id = request_id_ctx.get()
@@ -142,7 +143,8 @@ async def answer(
             conversation_service.generation_context(
                 tenant.tenant_id, user.id, payload.conversation_id
             )
-            if payload.conversation_id else None
+            if payload.conversation_id
+            else None
         )
         _conversation, assistant_message = conversation_service.begin_message(
             tenant.tenant_id,
@@ -161,7 +163,12 @@ async def answer(
             detail="A response is already being generated for this conversation.",
         )
     try:
-        intent = classify_assistant_intent(payload.query)
+        intent = classify_assistant_intent(
+            payload.query,
+            operational_context=getattr(
+                conversation_context, "operational_context", None
+            ),
+        )
         if intent.destination != "document":
             operational = await OperationalAssistantService(db).answer(
                 tenant.tenant_id, user.id, intent
@@ -170,11 +177,11 @@ async def answer(
                 answer=operational.text,
                 grounded=True,
                 citations=[],
-                retrieval={
-                    "result_count": 1 if operational.result is not None else 0,
-                    "included_count": 1 if operational.result is not None else 0,
-                    "top_k": 1,
-                },
+                retrieval=AIRetrievalSummary(
+                    result_count=1 if operational.result is not None else 0,
+                    included_count=1 if operational.result is not None else 0,
+                    top_k=1,
+                ),
                 model=None,
                 request_id=request_id,
             )
@@ -184,7 +191,16 @@ async def answer(
                 user.id,
                 payload,
                 request_id,
-                conversation_context=conversation_context.text if conversation_context else "",
+                conversation_context=conversation_context.text
+                if conversation_context
+                else "",
+            )
+        retrieval_metadata = response.retrieval.model_dump(mode="json")
+        if intent.destination != "document" and intent.tool_name:
+            retrieval_metadata["operational_context"] = build_operational_context(
+                intent,
+                operational.result,
+                getattr(conversation_context, "operational_context", None),
             )
         conversation_service.complete(
             tenant.tenant_id,
@@ -194,12 +210,14 @@ async def answer(
             citations=[
                 citation.model_dump(mode="json") for citation in response.citations
             ],
-            retrieval=response.retrieval.model_dump(mode="json"),
+            retrieval=retrieval_metadata,
             model=response.model.model if response.model else None,
             prompt_version=(
                 "operational-tools-v1"
                 if intent.destination != "document"
-                else PROMPT_VERSION if response.grounded else None
+                else PROMPT_VERSION
+                if response.grounded
+                else None
             ),
         )
         return response
@@ -233,9 +251,7 @@ async def stream_answer(
     tenant: TenantContext = Depends(get_current_tenant_context),
     user: TenantUser = Depends(allow_tenant_user),
     service: AIAnswerService = Depends(get_ai_answer_service),
-    conversation_service: AIConversationService = Depends(
-        get_ai_conversation_service
-    ),
+    conversation_service: AIConversationService = Depends(get_ai_conversation_service),
     db: Session = Depends(get_db),
 ) -> StreamingResponse:
     request_id = request_id_ctx.get()
@@ -244,7 +260,8 @@ async def stream_answer(
             conversation_service.generation_context(
                 tenant.tenant_id, user.id, payload.conversation_id
             )
-            if payload.conversation_id else None
+            if payload.conversation_id
+            else None
         )
         conversation, assistant_message = conversation_service.begin_message(
             tenant.tenant_id,
@@ -263,7 +280,10 @@ async def stream_answer(
             detail="A response is already being generated for this conversation.",
         )
 
-    intent = classify_assistant_intent(payload.query)
+    intent = classify_assistant_intent(
+        payload.query,
+        operational_context=getattr(conversation_context, "operational_context", None),
+    )
 
     async def operational_stream() -> AsyncGenerator[dict[str, Any], None]:
         answer = await OperationalAssistantService(db).answer(
@@ -281,10 +301,19 @@ async def stream_answer(
                 "tool_request_id": (
                     str(answer.tool_request_id) if answer.tool_request_id else None
                 ),
+                "operational_context": (
+                    build_operational_context(
+                        intent,
+                        answer.result,
+                        getattr(conversation_context, "operational_context", None),
+                    )
+                    if intent.destination != "document" and intent.tool_name
+                    else None
+                ),
             },
         }
         for start in range(0, len(answer.text), 96):
-            yield {"event": "token", "data": {"text": answer.text[start:start + 96]}}
+            yield {"event": "token", "data": {"text": answer.text[start : start + 96]}}
             await asyncio.sleep(0)
         yield {"event": "citations", "data": {"citations": []}}
         yield {
@@ -364,7 +393,11 @@ async def stream_answer(
                         "AI answer stream client disconnected tenant_id=%s user_id=%s "
                         "request_id=%s events_sent=%s bytes_sent=%s last_event=%s "
                         "is_disconnected=true",
-                        tenant.tenant_id, user.id, request_id, event_count, byte_count,
+                        tenant.tenant_id,
+                        user.id,
+                        request_id,
+                        event_count,
+                        byte_count,
                         last_event,
                     )
                     break
@@ -381,7 +414,9 @@ async def stream_answer(
                     continue
                 if item is None:
                     if not completed:
-                        raise RuntimeError("AI answer stream ended without a terminal event")
+                        raise RuntimeError(
+                            "AI answer stream ended without a terminal event"
+                        )
                     break
                 if isinstance(item, AIAnswerError):
                     conversation_service.terminate(
@@ -396,7 +431,10 @@ async def stream_answer(
                     logger.warning(
                         "AI answer stream failed tenant_id=%s user_id=%s request_id=%s "
                         "error_code=%s",
-                        tenant.tenant_id, user.id, request_id, item.code.value,
+                        tenant.tenant_id,
+                        user.id,
+                        request_id,
+                        item.code.value,
                     )
                     yield frame(
                         "error",
@@ -436,7 +474,11 @@ async def stream_answer(
                 logger.info(
                     "AI answer stream completed tenant_id=%s user_id=%s request_id=%s "
                     "events_sent=%s bytes_sent=%s last_event=%s is_disconnected=false",
-                    tenant.tenant_id, user.id, request_id, event_count, byte_count,
+                    tenant.tenant_id,
+                    user.id,
+                    request_id,
+                    event_count,
+                    byte_count,
                     last_event,
                 )
         except asyncio.CancelledError:
@@ -455,8 +497,13 @@ async def stream_answer(
                 "AI answer stream transport cancelled tenant_id=%s user_id=%s "
                 "request_id=%s events_sent=%s bytes_sent=%s last_event=%s "
                 "is_disconnected=%s",
-                tenant.tenant_id, user.id, request_id, event_count, byte_count,
-                last_event, str(disconnected).lower(),
+                tenant.tenant_id,
+                user.id,
+                request_id,
+                event_count,
+                byte_count,
+                last_event,
+                str(disconnected).lower(),
             )
             raise
         except Exception:
@@ -475,8 +522,13 @@ async def stream_answer(
                 "AI answer stream unexpected failure tenant_id=%s user_id=%s "
                 "request_id=%s events_sent=%s bytes_sent=%s last_event=%s "
                 "is_disconnected=%s",
-                tenant.tenant_id, user.id, request_id, event_count, byte_count,
-                last_event, str(disconnected).lower(),
+                tenant.tenant_id,
+                user.id,
+                request_id,
+                event_count,
+                byte_count,
+                last_event,
+                str(disconnected).lower(),
             )
             if not disconnected:
                 yield frame(

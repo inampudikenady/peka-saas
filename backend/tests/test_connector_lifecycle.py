@@ -48,6 +48,12 @@ def heartbeat_payload(instance_id, *, unhealthy=0, name=None, environment=None) 
         "status": "healthy", "uptime_seconds": 12345,
         "sources": {"total": 1, "healthy": 0 if unhealthy else 1, "unhealthy": unhealthy, "disabled": 0},
         "capabilities": ["filesystem_documents"],
+        "local_knowledge_store": {
+            "status": "degraded" if unhealthy else "healthy",
+            "documents": 124,
+            "indexed_chunks": 18342,
+            "last_index_activity": datetime.now(UTC).isoformat(),
+        },
     }
     if name is not None:
         payload["name"] = name
@@ -123,6 +129,10 @@ def test_heartbeat_authentication_source_health_and_recovery(lifecycle):
     response = service.heartbeat(connector.id, str(connector.id), registered.connector_secret, heartbeat_payload(connector.instance_id))
     assert response.accepted is True
     assert connector.status == ManagedConnectorStatus.CONNECTED
+    assert connector.local_knowledge_store_status == "healthy"
+    assert connector.knowledge_document_count == 124
+    assert connector.knowledge_indexed_chunk_count == 18342
+    assert connector.last_knowledge_index_activity_at is not None
     service.heartbeat(connector.id, str(connector.id), registered.connector_secret, heartbeat_payload(connector.instance_id, unhealthy=1))
     assert connector.status == ManagedConnectorStatus.DEGRADED
     assert service.repository.recent_events(tenant.id, connector.id)[0].event_type in {ConnectorEventType.STATUS_CHANGED, ConnectorEventType.SOURCE_HEALTH_CHANGED}

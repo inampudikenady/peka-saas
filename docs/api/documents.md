@@ -1,5 +1,9 @@
 # Connector document and Knowledge Service APIs
 
+> Historical migration reference. These SaaS document endpoints are no longer
+> registered in the normal application as of the customer-resident data-plane
+> cutover. New uploads, indexing, deletion, and search use the Connector-local API.
+
 ## Connector upload
 
 `POST /api/v1/connectors/{connector_id}/documents` is tenant-neutral at the HTTP routing layer. `Host` and `X-Forwarded-Host` are ignored for tenant selection. The bearer secret, path connector ID, and matching `X-PEKA-Connector-ID` authenticate one `ManagedConnector`; its persisted tenant ID is the only ownership source.

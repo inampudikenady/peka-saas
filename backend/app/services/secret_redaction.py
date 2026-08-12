@@ -31,7 +31,9 @@ class SecretRedactionService:
         ),
         (
             "TOKEN",
-            re.compile(r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b"),
+            re.compile(
+                r"\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,}\b"
+            ),
         ),
         (
             "ACCESS KEY",
@@ -92,6 +94,7 @@ class SecretRedactionService:
         text = value
         counts: Counter[str] = Counter()
         for category, pattern in self._patterns:
+
             def replacement(match: re.Match[str], label: str = category) -> str:
                 counts[label] += 1
                 return f"[REDACTED {label}]"

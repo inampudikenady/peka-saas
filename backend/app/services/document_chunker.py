@@ -100,7 +100,9 @@ def _structured_blocks(text: str) -> list[str]:
         index += 1
         while index < len(lines) and lines[index].strip():
             candidate = lines[index]
-            if candidate.lstrip().startswith(("```", "~~~")) or _HEADING.match(candidate):
+            if candidate.lstrip().startswith(("```", "~~~")) or _HEADING.match(
+                candidate
+            ):
                 break
             if matcher is not None and not matcher.match(candidate):
                 break
@@ -173,13 +175,21 @@ def _chunk_rows(parsed: ParsedDocument, target_words: int) -> list[Chunk]:
     for sheet_name in sorted(groups):
         rows = groups[sheet_name]
         headers = rows[0].metadata.get("headers") if rows else None
-        header = " | ".join(str(item) for item in headers) if headers else rows[0].text if rows else ""
+        header = (
+            " | ".join(str(item) for item in headers)
+            if headers
+            else rows[0].text
+            if rows
+            else ""
+        )
         buffer: list = []
         word_count = 0
         for row in rows:
             row_words = len(row.text.split())
             if buffer and word_count + row_words > target_words:
-                chunks.append(_row_chunk(len(chunks), sheet_name or None, header, buffer))
+                chunks.append(
+                    _row_chunk(len(chunks), sheet_name or None, header, buffer)
+                )
                 buffer = []
                 word_count = 0
             buffer.append(row)
@@ -196,8 +206,13 @@ def _row_chunk(index: int, sheet_name: str | None, header: str, rows: list) -> C
     if body.splitlines()[0] != header:
         body = f"{header}\n{body}"
     return Chunk(
-        index=index, text=body, token_count=max(1, int(len(body.split()) * 1.3)),
-        page_number=None, sheet_name=sheet_name,
-        row_start=first.row_start, row_end=last.row_end,
-        section_title=first.section_title, metadata={"header": header},
+        index=index,
+        text=body,
+        token_count=max(1, int(len(body.split()) * 1.3)),
+        page_number=None,
+        sheet_name=sheet_name,
+        row_start=first.row_start,
+        row_end=last.row_end,
+        section_title=first.section_title,
+        metadata={"header": header},
     )

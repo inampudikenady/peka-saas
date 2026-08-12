@@ -30,8 +30,13 @@ _REJECTION_EVENTS = {
 
 def _request_id(request: Request) -> str:
     context_id = request_id_ctx.get()
-    value = context_id if context_id != "-" else request.headers.get("X-Request-ID", "-")
-    return "".join(character if character.isprintable() and not character.isspace() else "_" for character in value)[:128]
+    value = (
+        context_id if context_id != "-" else request.headers.get("X-Request-ID", "-")
+    )
+    return "".join(
+        character if character.isprintable() and not character.isspace() else "_"
+        for character in value
+    )[:128]
 
 
 def _value(value: UUID | str | None) -> str:

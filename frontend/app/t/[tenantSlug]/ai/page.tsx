@@ -577,14 +577,14 @@ export default function AIPage() {
           {!activeId && !pendingQuestion && promptSuggestions && !promptSuggestions.has_indexed_knowledge && (
             <Card className="mx-auto mt-8 max-w-2xl border-dashed">
               <CardContent className="pt-5 text-center">
-                <h2 className="font-semibold">Add knowledge to get started</h2>
+                <h2 className="font-semibold">Local knowledge is not ready</h2>
                 <p className="mt-2 text-sm text-slate-500">
                   {promptSuggestions.onboarding_guidance}
                 </p>
                 {user.role === "tenant_admin" && (
                   <Button className="mt-4" variant="outline" asChild>
-                    <a href={`/t/${tenantSlug}/administration/documents`}>
-                      Manage knowledge
+                    <a href={`/t/${tenantSlug}/connectors`}>
+                      View Connector
                     </a>
                   </Button>
                 )}

@@ -9,7 +9,9 @@ from app.services.embedding_provider import EmbeddingProviderNotConfigured
 from app.services.provider_factory import embedding_provider, vector_store
 
 
-def embedding_health(config: Settings = settings, verify: bool = True) -> dict[str, Any]:
+def embedding_health(
+    config: Settings = settings, verify: bool = True
+) -> dict[str, Any]:
     result: dict[str, Any] = {
         "status": "not_configured",
         "provider": config.peka_embedding_provider,

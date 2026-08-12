@@ -28,5 +28,7 @@ class TenantPlatformSummaryService:
             local_admin_active=bool(local_admin and local_admin.is_active),
             active_user_count=self.user_repository.count_active_for_tenant(tenant.id),
             administrator_count=self.user_repository.count_active_admins(tenant.id),
-            connector_count=self.connector_repository.count_active_for_tenant(tenant.id),
+            connector_count=self.connector_repository.count_active_for_tenant(
+                tenant.id
+            ),
         )

@@ -6,7 +6,15 @@ from typing import Any
 from uuid import UUID
 
 from sqlalchemy import (
-    JSON, Boolean, DateTime, Enum, ForeignKey, Index, String, Text, text,
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -30,15 +38,22 @@ class AIConversation(Entity):
     __table_args__ = (
         Index(
             "ix_ai_conversations_owner_last_message",
-            "tenant_id", "user_id", "last_message_at",
+            "tenant_id",
+            "user_id",
+            "last_message_at",
         ),
         Index(
             "ix_ai_conversations_owner_visibility",
-            "tenant_id", "user_id", "deleted_at", "is_archived",
+            "tenant_id",
+            "user_id",
+            "deleted_at",
+            "is_archived",
         ),
         Index(
             "ix_ai_conversations_owner_title",
-            "tenant_id", "user_id", "title",
+            "tenant_id",
+            "user_id",
+            "title",
         ),
     )
 
@@ -52,9 +67,7 @@ class AIConversation(Entity):
     last_message_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False
     )
-    is_archived: Mapped[bool] = mapped_column(
-        Boolean, default=False, nullable=False
-    )
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -65,22 +78,21 @@ class AIConversationMessage(Entity):
     __table_args__ = (
         Index(
             "ix_ai_conversation_messages_conversation_created",
-            "conversation_id", "created_at",
+            "conversation_id",
+            "created_at",
         ),
         Index(
             "ix_ai_conversation_messages_owner",
-            "tenant_id", "user_id", "conversation_id",
+            "tenant_id",
+            "user_id",
+            "conversation_id",
         ),
         Index(
             "uq_ai_conversation_active_generation",
             "conversation_id",
             unique=True,
-            postgresql_where=text(
-                "status = 'STREAMING' AND role = 'ASSISTANT'"
-            ),
-            sqlite_where=text(
-                "status = 'STREAMING' AND role = 'ASSISTANT'"
-            ),
+            postgresql_where=text("status = 'STREAMING' AND role = 'ASSISTANT'"),
+            sqlite_where=text("status = 'STREAMING' AND role = 'ASSISTANT'"),
         ),
     )
 

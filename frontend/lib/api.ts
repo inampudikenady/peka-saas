@@ -1,4 +1,4 @@
-import type { AIAnswerCitation, AIAnswerRequest, AIAnswerResponse, AICitationEvidence, AIConversation, AIConversationList, AIPromptSuggestions, ConnectorDetail, DevelopmentEmail, IngestionHealth, ManagedConnector, ManagedDocument, ManagedDocumentListItem, PlatformInvitation, PlatformSettings, PlatformTokenResponse, PlatformUser, PlatformUserInput, RegistrationToken, RegistrationTokenCreated, Tenant, TenantAdministrator, TenantAdminInvite, TenantAuditEvent, TenantCreate, TenantCreateResponse, TenantMe, TenantPlatformSummary, TenantSSOConfig, TenantSSOLoginOptions, TenantSSOTest, TenantSSOUpdate, TenantUser, TenantUserInvitation } from "@/lib/types";
+import type { AIAnswerCitation, AIAnswerRequest, AIAnswerResponse, AICitationEvidence, AIConversation, AIConversationList, AIPromptSuggestions, ConnectorDetail, DevelopmentEmail, ManagedConnector, PlatformInvitation, PlatformSettings, PlatformTokenResponse, PlatformUser, PlatformUserInput, RegistrationToken, RegistrationTokenCreated, Tenant, TenantAdministrator, TenantAdminInvite, TenantAuditEvent, TenantCreate, TenantCreateResponse, TenantMe, TenantPlatformSummary, TenantSSOConfig, TenantSSOLoginOptions, TenantSSOTest, TenantSSOUpdate, TenantUser, TenantUserInvitation } from "@/lib/types";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) { super(message); }
@@ -143,12 +143,6 @@ export const tenantApi = {
   registrationTokens: (slug: string, includeInactive = false) => request<RegistrationToken[]>(`${tenantBase(slug)}/connectors/registration-tokens?include_inactive=${includeInactive}`, { credentials: "include" }),
   createRegistrationToken: (slug: string) => request<RegistrationTokenCreated>(`${tenantBase(slug)}/connectors/registration-tokens`, { method: "POST", credentials: "include", body: JSON.stringify({}) }),
   revokeRegistrationToken: (slug: string, id: string) => request<void>(`${tenantBase(slug)}/connectors/registration-tokens/${id}`, { method: "DELETE", credentials: "include" }),
-  documents: (slug: string, includeDeleted = false) => request<ManagedDocumentListItem[]>(`${tenantBase(slug)}/documents?include_deleted=${includeDeleted}`, { credentials: "include" }),
-  ingestionHealth: (slug: string) => request<IngestionHealth>(`${tenantBase(slug)}/documents/ingestion-health`, { credentials: "include" }),
-  document: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}`, { credentials: "include" }),
-  retryDocument: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}/retry`, { method: "POST", credentials: "include" }),
-  reindexDocument: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}/reindex`, { method: "POST", credentials: "include" }),
-  deleteDocument: (slug: string, id: string) => request<ManagedDocument>(`${tenantBase(slug)}/documents/${id}`, { method: "DELETE", credentials: "include" }),
   answer: (slug:string, body:AIAnswerRequest) => request<AIAnswerResponse>(`${tenantBase(slug)}/ai/answer`, {method:"POST",credentials:"include",body:JSON.stringify(body)}),
   assistantSuggestions: (slug:string) => request<AIPromptSuggestions>(`${tenantBase(slug)}/ai/suggestions`, {credentials:"include"}),
   streamAnswer: streamAIAnswer,

@@ -139,8 +139,8 @@ class _StreamingReasoningFilter:
             match = pattern.search(self.buffer)
             if match:
                 if not self.inside and match.start():
-                    output.append(self.buffer[:match.start()])
-                self.buffer = self.buffer[match.end():]
+                    output.append(self.buffer[: match.start()])
+                self.buffer = self.buffer[match.end() :]
                 self.inside = not self.inside
                 continue
             if self.inside:
@@ -241,13 +241,15 @@ class OpenAICompatibleLLMProvider:
         if response.status_code in {401, 403, 404}:
             raise LLMProviderUnavailable("The configured chat provider is unavailable.")
         if response.status_code >= 500:
-            raise LLMProviderUnavailable("The chat provider is temporarily unavailable.")
+            raise LLMProviderUnavailable(
+                "The chat provider is temporarily unavailable."
+            )
         if not response.is_success:
-            raise LLMProviderInvalidResponse("The chat provider returned an invalid response.")
+            raise LLMProviderInvalidResponse(
+                "The chat provider returned an invalid response."
+            )
 
-    async def _post_json(
-        self, path: str, payload: dict[str, object]
-    ) -> dict[str, Any]:
+    async def _post_json(self, path: str, payload: dict[str, object]) -> dict[str, Any]:
         timeout = httpx.Timeout(self.timeout_seconds)
         for attempt in range(2):
             try:
@@ -342,7 +344,9 @@ class OpenAICompatibleLLMProvider:
         return GenerationResult(
             text=suppress_reasoning(text),
             model=str(data.get("model") or model or self.model),
-            output_tokens=int(output_tokens) if isinstance(output_tokens, int) else None,
+            output_tokens=int(output_tokens)
+            if isinstance(output_tokens, int)
+            else None,
         )
 
     async def stream(
@@ -387,7 +391,13 @@ class OpenAICompatibleLLMProvider:
                             content = delta.get("content") or ""
                             if not isinstance(content, str):
                                 raise ValueError
-                        except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
+                        except (
+                            json.JSONDecodeError,
+                            KeyError,
+                            IndexError,
+                            TypeError,
+                            ValueError,
+                        ) as exc:
                             raise LLMProviderInvalidResponse(
                                 "The chat provider returned an invalid stream."
                             ) from exc

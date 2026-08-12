@@ -29,8 +29,7 @@ def create_access_token(
     expires_delta: Optional[timedelta] = None,
 ) -> str:
     expires_at = datetime.now(UTC) + (
-        expires_delta
-        or timedelta(minutes=settings.platform_admin_access_token_minutes)
+        expires_delta or timedelta(minutes=settings.platform_admin_access_token_minutes)
     )
 
     payload = {
@@ -54,8 +53,7 @@ def create_tenant_access_token(
     expires_delta: Optional[timedelta] = None,
 ) -> str:
     expires_at = datetime.now(UTC) + (
-        expires_delta
-        or timedelta(minutes=settings.tenant_access_token_minutes)
+        expires_delta or timedelta(minutes=settings.tenant_access_token_minutes)
     )
 
     payload = {

@@ -35,7 +35,10 @@ def initialize_knowledge_dependencies(
         )
         logger.warning(
             "Knowledge services started in degraded mode",
-            extra={"knowledge_status": result.status, "qdrant_status": "not_configured"},
+            extra={
+                "knowledge_status": result.status,
+                "qdrant_status": "not_configured",
+            },
         )
         return result
 

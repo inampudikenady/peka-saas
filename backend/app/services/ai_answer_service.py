@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
@@ -25,7 +26,7 @@ from app.services.citation_validator import (
     normalize_answer,
     validate_citations,
 )
-from app.services.knowledge_service import KnowledgeFilterError, KnowledgeService
+from app.services.knowledge_service import KnowledgeFilterError
 from app.services.llm_provider import (
     GenerationResult,
     LLMMessage,
@@ -63,7 +64,7 @@ class _PreparedAnswer:
 class AIAnswerService:
     def __init__(
         self,
-        knowledge: KnowledgeService,
+        knowledge: Any,
         provider: LLMProvider,
         config: Settings = settings,
     ) -> None:
@@ -102,9 +103,10 @@ class AIAnswerService:
             )
         return query, top_k
 
-    def _prepare(
+    async def _prepare(
         self,
         tenant_id: UUID,
+        user_id: UUID,
         request: AIAnswerRequest,
         conversation_context: str = "",
     ) -> _PreparedAnswer:
@@ -113,10 +115,16 @@ class AIAnswerService:
         conversation_context = self.redactor.redact(conversation_context).text
         started = monotonic()
         try:
-            response = self.knowledge.search(
-                tenant_id,
-                SearchRequest(query=query, top_k=top_k, filters=request.filters),
+            search_request = SearchRequest(
+                query=query, top_k=top_k, filters=request.filters
             )
+            search_parameters = inspect.signature(self.knowledge.search).parameters
+            pending = (
+                self.knowledge.search(tenant_id, user_id, search_request)
+                if len(search_parameters) == 3
+                else self.knowledge.search(tenant_id, search_request)
+            )
+            response = await pending if inspect.isawaitable(pending) else pending
         except KnowledgeFilterError as exc:
             raise AIAnswerError(
                 AIAnswerErrorCode.INVALID_FILTER,
@@ -133,15 +141,21 @@ class AIAnswerService:
             metadata = dict(result.metadata)
             metadata["sensitive_content_redacted"] = redaction.redacted
             metadata["redaction_categories"] = list(redaction.detections)
-            safe_results.append(result.model_copy(update={
-                "text": redaction.text,
-                "metadata": metadata,
-            }))
+            safe_results.append(
+                result.model_copy(
+                    update={
+                        "text": redaction.text,
+                        "metadata": metadata,
+                    }
+                )
+            )
             if redaction.redacted:
                 logger.warning(
                     "AI evidence secrets redacted tenant_id=%s document_id=%s "
                     "chunk_id=%s categories=%s count=%s",
-                    tenant_id, result.document_id, result.chunk_id,
+                    tenant_id,
+                    result.document_id,
+                    result.chunk_id,
                     ",".join(sorted(redaction.detections)),
                     sum(redaction.detections.values()),
                 )
@@ -198,18 +212,12 @@ class AIAnswerService:
         except ValueError:
             code = AIAnswerErrorCode.AI_GENERATION_FAILED
         messages = {
-            AIAnswerErrorCode.CHAT_PROVIDER_NOT_CONFIGURED:
-                "The AI service is not configured.",
-            AIAnswerErrorCode.CHAT_PROVIDER_UNAVAILABLE:
-                "The AI service is temporarily unavailable.",
-            AIAnswerErrorCode.CHAT_PROVIDER_TIMEOUT:
-                "The AI service did not respond in time.",
-            AIAnswerErrorCode.CHAT_PROVIDER_RATE_LIMITED:
-                "The AI service is temporarily busy. Please try again.",
-            AIAnswerErrorCode.CHAT_PROVIDER_INVALID_RESPONSE:
-                "The AI service returned an invalid response.",
-            AIAnswerErrorCode.CONTEXT_LIMIT_EXCEEDED:
-                "The evidence exceeds the configured model context.",
+            AIAnswerErrorCode.CHAT_PROVIDER_NOT_CONFIGURED: "The AI service is not configured.",
+            AIAnswerErrorCode.CHAT_PROVIDER_UNAVAILABLE: "The AI service is temporarily unavailable.",
+            AIAnswerErrorCode.CHAT_PROVIDER_TIMEOUT: "The AI service did not respond in time.",
+            AIAnswerErrorCode.CHAT_PROVIDER_RATE_LIMITED: "The AI service is temporarily busy. Please try again.",
+            AIAnswerErrorCode.CHAT_PROVIDER_INVALID_RESPONSE: "The AI service returned an invalid response.",
+            AIAnswerErrorCode.CONTEXT_LIMIT_EXCEEDED: "The evidence exceeds the configured model context.",
         }
         return AIAnswerError(
             code, messages.get(code, "The AI service could not generate an answer.")
@@ -284,7 +292,7 @@ class AIAnswerService:
             user_id,
             request_id,
         )
-        prepared = self._prepare(tenant_id, request, conversation_context)
+        prepared = await self._prepare(tenant_id, user_id, request, conversation_context)
         if prepared.prompt is None:
             return self._insufficient(prepared.retrieval, request_id)
         answer, citations, model = await self._generate_validated(prepared.prompt)
@@ -312,7 +320,7 @@ class AIAnswerService:
             request_id,
         )
         try:
-            prepared = self._prepare(tenant_id, request, conversation_context)
+            prepared = await self._prepare(tenant_id, user_id, request, conversation_context)
             yield {
                 "event": "retrieval",
                 "data": prepared.retrieval.model_dump(mode="json"),
@@ -346,7 +354,7 @@ class AIAnswerService:
             # Buffering until citation validation prevents invalid or reasoning
             # content from reaching the transport. Emit bounded final deltas.
             for start in range(0, len(answer), 96):
-                yield {"event": "token", "data": {"text": answer[start:start + 96]}}
+                yield {"event": "token", "data": {"text": answer[start : start + 96]}}
                 await asyncio.sleep(0)
             yield {
                 "event": "citations",

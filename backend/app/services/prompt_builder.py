@@ -78,9 +78,11 @@ class PromptBuilder:
         for existing in included:
             if normalized == existing:
                 return True
-            if min(len(normalized), len(existing)) >= 100 and SequenceMatcher(
-                None, normalized, existing, autojunk=False
-            ).ratio() >= 0.96:
+            if (
+                min(len(normalized), len(existing)) >= 100
+                and SequenceMatcher(None, normalized, existing, autojunk=False).ratio()
+                >= 0.96
+            ):
                 return True
         return False
 
@@ -147,7 +149,10 @@ class PromptBuilder:
                 source_lines.append(f"Sheet: {citation.sheet_name}")
             if citation.row_start is not None:
                 row_value = str(citation.row_start)
-                if citation.row_end is not None and citation.row_end != citation.row_start:
+                if (
+                    citation.row_end is not None
+                    and citation.row_end != citation.row_start
+                ):
                     row_value += f"-{citation.row_end}"
                 source_lines.append(f"Rows: {row_value}")
             block = (

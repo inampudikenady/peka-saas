@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -h "$SOURCE" ]]; do
+    SOURCE_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" = /* ]] || SOURCE="$SOURCE_DIR/$SOURCE"
+done
+PEKA_CLI_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+export PEKA_CLI_DIR
+
+# shellcheck source=lib/common.sh
+source "$PEKA_CLI_DIR/lib/common.sh"
+# shellcheck source=lib/app.sh
+source "$PEKA_CLI_DIR/lib/app.sh"
+# shellcheck source=lib/install.sh
+source "$PEKA_CLI_DIR/lib/install.sh"
+
+main() {
+    case "${1:-help}" in
+        -h|--help|help)
+            shift || true
+            peka_help "$@"
+            ;;
+        -V|--version|version)
+            [[ $# -eq 1 ]] || usage_error "version does not accept arguments."
+            printf 'PEKA CLI %s\n' "$(peka_version)"
+            ;;
+        app)
+            shift
+            app_command "$@"
+            ;;
+        admin)
+            shift
+            admin_command "$@"
+            ;;
+        install)
+            shift
+            [[ $# -eq 0 ]] || usage_error "install does not accept arguments."
+            install_command
+            ;;
+        doctor)
+            shift
+            [[ $# -eq 0 ]] || usage_error "doctor does not accept arguments."
+            doctor_command
+            ;;
+        *)
+            usage_error "unknown command '$1'."
+            ;;
+    esac
+}
+
+main "$@"

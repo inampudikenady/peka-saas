@@ -29,9 +29,13 @@ class TenantSSOConfig(Entity):
     entra_tenant_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     issuer_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     client_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    client_secret_encrypted: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    client_secret_encrypted: Mapped[str | None] = mapped_column(
+        String(2048), nullable=True
+    )
 
-    authorization_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    authorization_endpoint: Mapped[str | None] = mapped_column(
+        String(500), nullable=True
+    )
     token_endpoint: Mapped[str | None] = mapped_column(String(500), nullable=True)
     jwks_uri: Mapped[str | None] = mapped_column(String(500), nullable=True)
 

@@ -50,16 +50,18 @@ class TenantService:
     ) -> None:
         if not hasattr(self.repository, "db"):
             return
-        self.repository.db.add(TenantAuditEvent(
-            tenant_id=tenant.id,
-            tenant_slug=tenant.slug,
-            tenant_display_name=tenant.display_name,
-            actor_platform_admin_id=actor.id if actor else None,
-            actor_username=actor.username if actor else "system",
-            action=action,
-            changes=changes,
-            request_id=request_id_ctx.get(),
-        ))
+        self.repository.db.add(
+            TenantAuditEvent(
+                tenant_id=tenant.id,
+                tenant_slug=tenant.slug,
+                tenant_display_name=tenant.display_name,
+                actor_platform_admin_id=actor.id if actor else None,
+                actor_username=actor.username if actor else "system",
+                action=action,
+                changes=changes,
+                request_id=request_id_ctx.get(),
+            )
+        )
 
     def create(
         self, tenant: TenantCreate, actor: PlatformAdmin | None = None
@@ -148,7 +150,10 @@ class TenantService:
     ) -> Tenant:
         tenant = self.get_by_slug_or_raise(slug)
         changes: dict[str, dict[str, str]] = {}
-        if payload.display_name is not None and payload.display_name != tenant.display_name:
+        if (
+            payload.display_name is not None
+            and payload.display_name != tenant.display_name
+        ):
             changes["display_name"] = {
                 "old": tenant.display_name,
                 "new": payload.display_name,
@@ -220,9 +225,11 @@ class TenantService:
             raise
 
     def list_audit_events(self, slug: str) -> list[TenantAuditEvent]:
-        return list(self.repository.db.scalars(
-            select(TenantAuditEvent)
-            .where(TenantAuditEvent.tenant_slug == slug)
-            .order_by(TenantAuditEvent.created_at.desc())
-            .limit(200)
-        ).all())
+        return list(
+            self.repository.db.scalars(
+                select(TenantAuditEvent)
+                .where(TenantAuditEvent.tenant_slug == slug)
+                .order_by(TenantAuditEvent.created_at.desc())
+                .limit(200)
+            ).all()
+        )

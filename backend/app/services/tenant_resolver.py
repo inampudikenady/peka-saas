@@ -16,14 +16,15 @@ class TenantResolver:
     def resolve_from_slug(self, slug: str) -> TenantContext | None:
         definition = self.registry.get_by_slug(slug)
 
-        return self._build_context(definition, definition.hostname if definition else "")
+        return self._build_context(
+            definition, definition.hostname if definition else ""
+        )
 
     @staticmethod
     def _build_context(
         definition: TenantDefinition | None,
         hostname: str,
     ) -> TenantContext | None:
-
         if definition is None or not definition.enabled:
             return None
 

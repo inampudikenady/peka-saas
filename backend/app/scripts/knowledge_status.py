@@ -25,19 +25,22 @@ def main() -> int:
         db.execute(text("SELECT 1"))
         repository = DocumentRepository(db)
         heartbeat = repository.latest_worker_heartbeat()
-        queued = db.scalar(
-            select(func.count())
-            .select_from(IngestionJob)
-            .where(
-                IngestionJob.state.in_(
-                    [
-                        IngestionJobState.PENDING,
-                        IngestionJobState.FAILED_RETRYABLE,
-                        IngestionJobState.RETRY,
-                    ]
+        queued = (
+            db.scalar(
+                select(func.count())
+                .select_from(IngestionJob)
+                .where(
+                    IngestionJob.state.in_(
+                        [
+                            IngestionJobState.PENDING,
+                            IngestionJobState.FAILED_RETRYABLE,
+                            IngestionJobState.RETRY,
+                        ]
+                    )
                 )
             )
-        ) or 0
+            or 0
+        )
         worker: dict[str, object] = {"status": "not_running", "queued_jobs": queued}
         if heartbeat is not None:
             seen = heartbeat.last_seen_at
@@ -70,9 +73,7 @@ def main() -> int:
         result["object_storage"] = {"status": "unavailable"}
     print(json.dumps(result, indent=2, sort_keys=True))
     statuses = [
-        item.get("status")
-        for item in result.values()
-        if isinstance(item, dict)
+        item.get("status") for item in result.values() if isinstance(item, dict)
     ]
     return 0 if "unavailable" not in statuses else 1
 

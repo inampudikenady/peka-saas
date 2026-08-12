@@ -8,5 +8,5 @@ const explanations: Record<string, string> = {
 export function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase(); const positive = ["active", "pending", "enabled", "operational", "connected", "in_sync"].includes(normalized);
   const amber = ["expired", "suspended", "disabled", "degraded", "out_of_sync"].includes(normalized); const red = ["disconnected", "authentication_failed"].includes(normalized);
-  return <span title={explanations[normalized]} className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-medium", positive && "bg-emerald-100 text-emerald-700", amber && "bg-amber-100 text-amber-800", red && "bg-red-100 text-red-700", !positive && !amber && !red && "bg-slate-100 text-slate-700")}>{labels[normalized] ?? status}</span>;
+  return <span title={explanations[normalized]} className={cn("inline-flex rounded-full px-2.5 py-1 text-xs font-medium", positive && "bg-peka-success-subtle text-peka-success", amber && "bg-peka-warning-subtle text-peka-warning", red && "bg-peka-danger-subtle text-peka-danger", !positive && !amber && !red && "bg-peka-app text-peka-secondary")}>{labels[normalized] ?? status}</span>;
 }

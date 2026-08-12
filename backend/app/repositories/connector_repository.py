@@ -25,11 +25,24 @@ class ConnectorRepository:
         self.db.flush()
         return entity
 
-    def get_registration_token_for_update(self, token_hash: str) -> ConnectorRegistrationToken | None:
-        return self.db.scalar(select(ConnectorRegistrationToken).where(ConnectorRegistrationToken.token_hash == token_hash).with_for_update())
+    def get_registration_token_for_update(
+        self, token_hash: str
+    ) -> ConnectorRegistrationToken | None:
+        return self.db.scalar(
+            select(ConnectorRegistrationToken)
+            .where(ConnectorRegistrationToken.token_hash == token_hash)
+            .with_for_update()
+        )
 
-    def get_registration_token(self, tenant_id: UUID, token_id: UUID) -> ConnectorRegistrationToken | None:
-        return self.db.scalar(select(ConnectorRegistrationToken).where(ConnectorRegistrationToken.id == token_id, ConnectorRegistrationToken.tenant_id == tenant_id))
+    def get_registration_token(
+        self, tenant_id: UUID, token_id: UUID
+    ) -> ConnectorRegistrationToken | None:
+        return self.db.scalar(
+            select(ConnectorRegistrationToken).where(
+                ConnectorRegistrationToken.id == token_id,
+                ConnectorRegistrationToken.tenant_id == tenant_id,
+            )
+        )
 
     def list_registration_tokens(
         self,
@@ -38,75 +51,167 @@ class ConnectorRepository:
         include_inactive: bool = False,
         now: datetime | None = None,
     ) -> list[ConnectorRegistrationToken]:
-        stmt = select(ConnectorRegistrationToken).where(ConnectorRegistrationToken.tenant_id == tenant_id)
+        stmt = select(ConnectorRegistrationToken).where(
+            ConnectorRegistrationToken.tenant_id == tenant_id
+        )
         if not include_inactive:
             if now is None:
-                raise ValueError("now is required when filtering usable registration tokens")
+                raise ValueError(
+                    "now is required when filtering usable registration tokens"
+                )
             stmt = stmt.where(
                 ConnectorRegistrationToken.used_at.is_(None),
                 ConnectorRegistrationToken.revoked_at.is_(None),
                 ConnectorRegistrationToken.expires_at > now,
             )
-        return list(self.db.scalars(stmt.order_by(ConnectorRegistrationToken.created_at.desc())).all())
+        return list(
+            self.db.scalars(
+                stmt.order_by(ConnectorRegistrationToken.created_at.desc())
+            ).all()
+        )
 
-    def list_unrecorded_expired_tokens(self, now: datetime) -> list[ConnectorRegistrationToken]:
-        return list(self.db.scalars(select(ConnectorRegistrationToken).where(
-            ConnectorRegistrationToken.expires_at <= now,
-            ConnectorRegistrationToken.used_at.is_(None),
-            ConnectorRegistrationToken.revoked_at.is_(None),
-            ConnectorRegistrationToken.expiration_event_recorded_at.is_(None),
-        )).all())
+    def list_unrecorded_expired_tokens(
+        self, now: datetime
+    ) -> list[ConnectorRegistrationToken]:
+        return list(
+            self.db.scalars(
+                select(ConnectorRegistrationToken).where(
+                    ConnectorRegistrationToken.expires_at <= now,
+                    ConnectorRegistrationToken.used_at.is_(None),
+                    ConnectorRegistrationToken.revoked_at.is_(None),
+                    ConnectorRegistrationToken.expiration_event_recorded_at.is_(None),
+                )
+            ).all()
+        )
 
-    def get_active_by_instance(self, tenant_id: UUID, instance_id: UUID) -> ManagedConnector | None:
-        return self.db.scalar(select(ManagedConnector).where(ManagedConnector.tenant_id == tenant_id, ManagedConnector.instance_id == instance_id, ManagedConnector.retired_at.is_(None)))
-
-    def count_active_for_tenant(self, tenant_id: UUID) -> int:
+    def get_active_by_instance(
+        self, tenant_id: UUID, instance_id: UUID
+    ) -> ManagedConnector | None:
         return self.db.scalar(
-            select(func.count(ManagedConnector.id)).where(
+            select(ManagedConnector).where(
                 ManagedConnector.tenant_id == tenant_id,
+                ManagedConnector.instance_id == instance_id,
                 ManagedConnector.retired_at.is_(None),
             )
-        ) or 0
+        )
+
+    def count_active_for_tenant(self, tenant_id: UUID) -> int:
+        return (
+            self.db.scalar(
+                select(func.count(ManagedConnector.id)).where(
+                    ManagedConnector.tenant_id == tenant_id,
+                    ManagedConnector.retired_at.is_(None),
+                )
+            )
+            or 0
+        )
 
     def get(self, tenant_id: UUID, connector_id: UUID) -> ManagedConnector | None:
-        return self.db.scalar(select(ManagedConnector).where(ManagedConnector.id == connector_id, ManagedConnector.tenant_id == tenant_id))
+        return self.db.scalar(
+            select(ManagedConnector).where(
+                ManagedConnector.id == connector_id,
+                ManagedConnector.tenant_id == tenant_id,
+            )
+        )
 
     def get_unscoped(self, connector_id: UUID) -> ManagedConnector | None:
         """Public secret authentication and platform inventory are the only callers."""
         return self.db.get(ManagedConnector, connector_id)
 
-    def list_for_tenant(self, tenant_id: UUID, *, include_retired: bool = False) -> list[ManagedConnector]:
+    def list_for_tenant(
+        self, tenant_id: UUID, *, include_retired: bool = False
+    ) -> list[ManagedConnector]:
         stmt = select(ManagedConnector).where(ManagedConnector.tenant_id == tenant_id)
         if not include_retired:
             stmt = stmt.where(ManagedConnector.retired_at.is_(None))
-        return list(self.db.scalars(stmt.order_by(ManagedConnector.name, ManagedConnector.registered_at.desc())).all())
+        return list(
+            self.db.scalars(
+                stmt.order_by(
+                    ManagedConnector.name, ManagedConnector.registered_at.desc()
+                )
+            ).all()
+        )
 
-    def list_for_platform(self, *, include_retired: bool = False) -> list[tuple[ManagedConnector, Tenant]]:
-        stmt = select(ManagedConnector, Tenant).join(Tenant, Tenant.id == ManagedConnector.tenant_id)
+    def list_for_platform(
+        self, *, include_retired: bool = False
+    ) -> list[tuple[ManagedConnector, Tenant]]:
+        stmt = select(ManagedConnector, Tenant).join(
+            Tenant, Tenant.id == ManagedConnector.tenant_id
+        )
         if not include_retired:
             stmt = stmt.where(ManagedConnector.retired_at.is_(None))
-        rows = self.db.execute(stmt.order_by(Tenant.display_name, ManagedConnector.name)).all()
+        rows = self.db.execute(
+            stmt.order_by(Tenant.display_name, ManagedConnector.name)
+        ).all()
         return [(connector, tenant) for connector, tenant in rows]
 
     def list_all(self) -> list[ManagedConnector]:
         return list(self.db.scalars(select(ManagedConnector)).all())
 
-    def replace_capabilities(self, connector: ManagedConnector, names: list[str], now: datetime) -> None:
-        self.db.execute(delete(ConnectorCapability).where(ConnectorCapability.connector_id == connector.id))
+    def replace_capabilities(
+        self, connector: ManagedConnector, names: list[str], now: datetime
+    ) -> None:
+        self.db.execute(
+            delete(ConnectorCapability).where(
+                ConnectorCapability.connector_id == connector.id
+            )
+        )
         for name in names:
-            self.db.add(ConnectorCapability(connector_id=connector.id, tenant_id=connector.tenant_id, name=name, last_reported_at=now))
+            self.db.add(
+                ConnectorCapability(
+                    connector_id=connector.id,
+                    tenant_id=connector.tenant_id,
+                    name=name,
+                    last_reported_at=now,
+                )
+            )
 
     def list_capabilities(self, tenant_id: UUID, connector_id: UUID) -> list[str]:
-        return list(self.db.scalars(select(ConnectorCapability.name).where(ConnectorCapability.tenant_id == tenant_id, ConnectorCapability.connector_id == connector_id).order_by(ConnectorCapability.name)).all())
+        return list(
+            self.db.scalars(
+                select(ConnectorCapability.name)
+                .where(
+                    ConnectorCapability.tenant_id == tenant_id,
+                    ConnectorCapability.connector_id == connector_id,
+                )
+                .order_by(ConnectorCapability.name)
+            ).all()
+        )
 
-    def recent_heartbeats(self, tenant_id: UUID, connector_id: UUID, limit: int = 50) -> list[ConnectorHeartbeat]:
-        return list(self.db.scalars(select(ConnectorHeartbeat).where(ConnectorHeartbeat.tenant_id == tenant_id, ConnectorHeartbeat.connector_id == connector_id).order_by(ConnectorHeartbeat.received_at.desc()).limit(limit)).all())
+    def recent_heartbeats(
+        self, tenant_id: UUID, connector_id: UUID, limit: int = 50
+    ) -> list[ConnectorHeartbeat]:
+        return list(
+            self.db.scalars(
+                select(ConnectorHeartbeat)
+                .where(
+                    ConnectorHeartbeat.tenant_id == tenant_id,
+                    ConnectorHeartbeat.connector_id == connector_id,
+                )
+                .order_by(ConnectorHeartbeat.received_at.desc())
+                .limit(limit)
+            ).all()
+        )
 
-    def recent_events(self, tenant_id: UUID, connector_id: UUID, limit: int = 100) -> list[ConnectorEvent]:
-        return list(self.db.scalars(select(ConnectorEvent).where(ConnectorEvent.tenant_id == tenant_id, ConnectorEvent.connector_id == connector_id).order_by(ConnectorEvent.occurred_at.desc()).limit(limit)).all())
+    def recent_events(
+        self, tenant_id: UUID, connector_id: UUID, limit: int = 100
+    ) -> list[ConnectorEvent]:
+        return list(
+            self.db.scalars(
+                select(ConnectorEvent)
+                .where(
+                    ConnectorEvent.tenant_id == tenant_id,
+                    ConnectorEvent.connector_id == connector_id,
+                )
+                .order_by(ConnectorEvent.occurred_at.desc())
+                .limit(limit)
+            ).all()
+        )
 
     def delete_heartbeats_before(self, cutoff: datetime) -> int:
-        result = self.db.execute(delete(ConnectorHeartbeat).where(ConnectorHeartbeat.received_at < cutoff))
+        result = self.db.execute(
+            delete(ConnectorHeartbeat).where(ConnectorHeartbeat.received_at < cutoff)
+        )
         return result.rowcount or 0
 
     def commit(self) -> None:

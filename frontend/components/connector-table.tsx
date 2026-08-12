@@ -1,12 +1,11 @@
+import { LoaderCircle } from "lucide-react";
 import Link from "next/link";
 import {
   ConnectorStatusBadge,
   LastHeartbeat,
-  SourceSummary,
 } from "@/components/connector-presenters";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { formatDateTime } from "@/lib/datetime";
 import type { ManagedConnector } from "@/lib/types";
 
 type Props = {
@@ -14,40 +13,95 @@ type Props = {
   detailBase: string;
   platform?: boolean;
   canRetire?: boolean;
+  refreshingIds?: ReadonlySet<string>;
+  onRefresh?: (connector: ManagedConnector) => void;
   onRetire?: (connector: ManagedConnector) => void;
 };
+
+function ConnectorActions({
+  connector,
+  canRetire,
+  refreshing,
+  onRefresh,
+  onRetire,
+}: {
+  connector: ManagedConnector;
+  canRetire: boolean;
+  refreshing: boolean;
+  onRefresh?: (connector: ManagedConnector) => void;
+  onRetire?: (connector: ManagedConnector) => void;
+}) {
+  return (
+    <div className="flex flex-nowrap items-center gap-2 max-sm:flex-wrap">
+      {onRefresh && (
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 whitespace-nowrap px-3"
+          disabled={refreshing}
+          aria-label={`Refresh status for ${connector.name}`}
+          aria-busy={refreshing}
+          onClick={() => onRefresh(connector)}
+        >
+          {refreshing && (
+            <LoaderCircle
+              aria-hidden="true"
+              className="mr-2 h-4 w-4 animate-spin"
+              data-testid={`refresh-spinner-${connector.id}`}
+            />
+          )}
+          Refresh
+        </Button>
+      )}
+      {canRetire && !connector.retired_at && (
+        <Button
+          type="button"
+          variant="danger"
+          className="h-9 px-3"
+          onClick={() => onRetire?.(connector)}
+        >
+          Retire
+        </Button>
+      )}
+    </div>
+  );
+}
 
 export function ConnectorTable({
   connectors,
   detailBase,
   platform = false,
   canRetire = false,
+  refreshingIds = new Set<string>(),
+  onRefresh,
   onRetire,
 }: Props) {
   if (!connectors.length) {
     return (
-      <Card className="p-8 text-center text-sm text-slate-500">
+      <Card className="p-8 text-center text-sm text-peka-secondary">
         No connectors have been registered.
       </Card>
     );
   }
+
   const headers = platform
-    ? ["Connector Name", "Tenant", "Version", "Environment", "Instance ID", "Connector ID", "Status", "Last Heartbeat", "Sources", "Actions"]
-    : ["Name", "Version", "Environment", "Status", "Last heartbeat", "Source summary", "Registered at", "Actions"];
+    ? ["Connector", "Tenant", "Version", "Environment", "Status", "Last heartbeat", "Actions"]
+    : ["Connector", "Version", "Environment", "Status", "Last heartbeat", "Actions"];
+
   return (
-    <Card className="overflow-x-auto">
-      <table className="w-full min-w-max text-left text-sm">
-        <thead className="border-b bg-slate-50">
+    <Card className="overflow-hidden" data-testid="connector-inventory-table">
+      <table className="hidden w-full table-fixed text-left text-sm xl:table">
+        <colgroup>
+          {(platform
+            ? ["22%", "15%", "10%", "11%", "13%", "17%", "12%"]
+            : ["27%", "12%", "13%", "15%", "17%", "16%"]
+          ).map((width, index) => <col key={index} style={{ width }} />)}
+        </colgroup>
+        <thead className="border-b border-peka-border bg-peka-app">
           <tr>
             {headers.map((value, index) => (
               <th
-                className={`whitespace-nowrap py-3 font-medium text-slate-500 ${
-                  index === 0
-                    ? "pl-6 pr-4"
-                    : value === "Actions"
-                      ? `${platform ? "w-72 min-w-72" : "w-48 min-w-48"} px-4 pr-6`
-                      : "px-4"
-                }`}
+                className={`${index === 0 ? "pl-5" : "pl-3"} break-words py-3 pr-3 font-medium text-peka-secondary`}
                 key={value}
               >
                 {value}
@@ -58,67 +112,80 @@ export function ConnectorTable({
         <tbody>
           {connectors.map((connector) => {
             const timeZone = connector.tenant_timezone ?? "UTC";
+            const refreshing = refreshingIds.has(connector.id);
             return (
-              <tr className="border-b align-top last:border-0" key={connector.id}>
-                <td className="py-4 pl-6 pr-4 font-medium">
-                  <Link className="text-blue-600 hover:underline" href={`${detailBase}/${connector.id}`}>
+              <tr
+                className="border-b border-peka-border align-top hover:bg-peka-primary-subtle last:border-0"
+                key={connector.id}
+              >
+                <td className="break-words py-4 pl-5 pr-3 font-medium">
+                  <Link
+                    className="rounded-sm text-peka-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-peka-focus-ring focus-visible:ring-offset-2"
+                    href={`${detailBase}/${connector.id}`}
+                  >
                     {connector.name}
                   </Link>
                 </td>
-                {platform && <td className="px-4 py-4">{connector.tenant_name ?? "Unknown tenant"}</td>}
-                <td className="px-4 py-4">{connector.version}</td>
-                <td className="px-4 py-4">{connector.environment}</td>
-                {platform && (
-                  <>
-                    <td className="px-4 py-4 font-mono text-xs">{connector.instance_id}</td>
-                    <td className="px-4 py-4 font-mono text-xs">{connector.id}</td>
-                  </>
-                )}
-                <td className="px-4 py-4"><ConnectorStatusBadge status={connector.status} /></td>
-                <td className="whitespace-nowrap px-4 py-4">
+                {platform && <td className="break-words py-4 pl-3 pr-3">{connector.tenant_name ?? "Unknown tenant"}</td>}
+                <td className="break-words py-4 pl-3 pr-3">{connector.version}</td>
+                <td className="break-words py-4 pl-3 pr-3">{connector.environment}</td>
+                <td className="py-4 pl-3 pr-3"><ConnectorStatusBadge status={connector.status} /></td>
+                <td className="break-words py-4 pl-3 pr-3">
                   <LastHeartbeat value={connector.last_heartbeat_at} timeZone={timeZone} />
                 </td>
-                <td className="whitespace-nowrap px-4 py-4">
-                  <SourceSummary
-                    total={connector.source_total}
-                    healthy={connector.source_healthy}
-                    unhealthy={connector.source_unhealthy}
-                    disabled={connector.source_disabled}
+                <td className="py-4 pl-3 pr-4">
+                  <ConnectorActions
+                    connector={connector}
+                    canRetire={canRetire}
+                    refreshing={refreshing}
+                    onRefresh={onRefresh}
+                    onRetire={onRetire}
                   />
-                </td>
-                {!platform && (
-                  <td className="whitespace-nowrap px-4 py-4">
-                    {formatDateTime(connector.registered_at, timeZone)}
-                  </td>
-                )}
-                <td className={`${platform ? "w-72 min-w-72" : "w-48 min-w-48"} px-4 py-4 pr-6`}>
-                  <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
-                    <Button asChild variant="outline" className="shrink-0 whitespace-nowrap">
-                      <Link href={`${detailBase}/${connector.id}`}>Details</Link>
-                    </Button>
-                    {platform && connector.tenant_slug && (
-                      <Button asChild variant="ghost" className="shrink-0 whitespace-nowrap">
-                        <a href={`/t/${connector.tenant_slug}`} target="_blank" rel="noreferrer">
-                          Open tenant portal
-                        </a>
-                      </Button>
-                    )}
-                    {canRetire && !connector.retired_at && (
-                      <Button
-                        variant="danger"
-                        className="shrink-0 whitespace-nowrap"
-                        onClick={() => onRetire?.(connector)}
-                      >
-                        Retire
-                      </Button>
-                    )}
-                  </div>
                 </td>
               </tr>
             );
           })}
         </tbody>
       </table>
+
+      <div className="divide-y divide-peka-border xl:hidden">
+        {connectors.map((connector) => {
+          const timeZone = connector.tenant_timezone ?? "UTC";
+          const refreshing = refreshingIds.has(connector.id);
+          return (
+            <article className="space-y-4 p-5" key={connector.id}>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <Link
+                    className="break-words rounded-sm font-medium text-peka-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-peka-focus-ring focus-visible:ring-offset-2"
+                    href={`${detailBase}/${connector.id}`}
+                  >
+                    {connector.name}
+                  </Link>
+                  <p className="mt-1 break-words text-xs text-peka-secondary">
+                    {connector.environment} • {connector.version}
+                    {platform && connector.tenant_name ? ` • ${connector.tenant_name}` : ""}
+                  </p>
+                </div>
+                <ConnectorStatusBadge status={connector.status} />
+              </div>
+              <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                <div>
+                  <dt className="text-xs text-peka-secondary">Last heartbeat</dt>
+                  <dd><LastHeartbeat value={connector.last_heartbeat_at} timeZone={timeZone} /></dd>
+                </div>
+              </dl>
+              <ConnectorActions
+                connector={connector}
+                canRetire={canRetire}
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                onRetire={onRetire}
+              />
+            </article>
+          );
+        })}
+      </div>
     </Card>
   );
 }

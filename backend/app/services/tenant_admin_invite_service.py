@@ -9,6 +9,7 @@ from app.core.url_builder import build_tenant_admin_setup_url
 from app.schemas.tenant import TenantAdminInviteResponse
 from app.models.tenant_audit_event import TenantAuditEvent
 from app.core.logging import request_id_ctx
+from app.core.identity import normalize_email
 
 
 class TenantAdminInviteService:
@@ -96,23 +97,28 @@ class TenantAdminInviteService:
         try:
             invite, raw_token = self.create_invite(
                 tenant=tenant,
-                email=email.strip().lower(),
+                email=normalize_email(email),
                 full_name=full_name.strip(),
                 created_by_platform_admin_id=actor.id,
             )
-            self.repository.db.add(TenantAuditEvent(
-                tenant_id=tenant.id,
-                tenant_slug=tenant.slug,
-                tenant_display_name=tenant.display_name,
-                actor_platform_admin_id=actor.id,
-                actor_username=actor.username,
-                action="INITIAL_ADMIN_RECIPIENT_UPDATED",
-                changes={
-                    "email": {"old": previous.email, "new": invite.email},
-                    "full_name": {"old": previous.full_name, "new": invite.full_name},
-                },
-                request_id=request_id_ctx.get(),
-            ))
+            self.repository.db.add(
+                TenantAuditEvent(
+                    tenant_id=tenant.id,
+                    tenant_slug=tenant.slug,
+                    tenant_display_name=tenant.display_name,
+                    actor_platform_admin_id=actor.id,
+                    actor_username=actor.username,
+                    action="INITIAL_ADMIN_RECIPIENT_UPDATED",
+                    changes={
+                        "email": {"old": previous.email, "new": invite.email},
+                        "full_name": {
+                            "old": previous.full_name,
+                            "new": invite.full_name,
+                        },
+                    },
+                    request_id=request_id_ctx.get(),
+                )
+            )
             self.repository.commit()
             self.repository.refresh(invite)
         except Exception:

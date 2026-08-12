@@ -9,7 +9,7 @@ vi.mock("@/components/tenant-shell", () => ({ TenantShell: ({ children }: { chil
 describe("tenant administration navigation", () => {
   it("does not include a duplicate Connectors tab", () => {
     render(<TenantAdministration title="Administration"><p>Content</p></TenantAdministration>);
-    expect(tenantAdministrationTabs.map(([label]) => label)).toEqual(["Users", "Authentication", "Documents", "Tenant settings", "Audit"]);
+    expect(tenantAdministrationTabs.map(([label]) => label)).toEqual(["Users", "Authentication", "Tenant settings", "Audit"]);
     expect(screen.queryByRole("link", { name: "Connectors" })).not.toBeInTheDocument();
   });
 });

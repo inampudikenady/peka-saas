@@ -65,7 +65,8 @@ class InMemoryVectorStore:
 
     def delete_version(self, tenant_id: UUID, version_id: UUID) -> None:
         self.points = {
-            key: point for key, point in self.points.items()
+            key: point
+            for key, point in self.points.items()
             if point.payload.get("tenant_id") != str(tenant_id)
             or point.payload.get("version_id") != str(version_id)
         }
@@ -80,15 +81,15 @@ class InMemoryVectorStore:
         version_id: UUID | None = None,
     ) -> int:
         return sum(
-            1 for point in self.points.values()
+            1
+            for point in self.points.values()
             if point.payload.get("tenant_id") == str(tenant_id)
             and (
                 document_id is None
                 or point.payload.get("document_id") == str(document_id)
             )
             and (
-                version_id is None
-                or point.payload.get("version_id") == str(version_id)
+                version_id is None or point.payload.get("version_id") == str(version_id)
             )
         )
 
@@ -97,7 +98,8 @@ class InMemoryVectorStore:
 
     def delete_document(self, tenant_id: UUID, document_id: UUID) -> None:
         self.points = {
-            key: point for key, point in self.points.items()
+            key: point
+            for key, point in self.points.items()
             if point.payload.get("tenant_id") != str(tenant_id)
             or point.payload.get("document_id") != str(document_id)
         }
@@ -109,9 +111,15 @@ class InMemoryVectorStore:
         for point in self.points.values():
             if point.payload.get("tenant_id") != str(tenant_id):
                 continue
-            if any(point.payload.get(key) != value for key, value in filters.items() if value):
+            if any(
+                point.payload.get(key) != value
+                for key, value in filters.items()
+                if value
+            ):
                 continue
-            score = sum(left * right for left, right in zip(vector, point.vector, strict=True))
+            score = sum(
+                left * right for left, right in zip(vector, point.vector, strict=True)
+            )
             hits.append(VectorHit(point.id, score, point.payload))
         return sorted(hits, key=lambda hit: hit.score, reverse=True)[:limit]
 
@@ -151,13 +159,19 @@ class DisabledVectorStore:
 
 class QdrantVectorStore:
     def __init__(
-        self, url: str, collection: str, api_key: str | None = None,
-        timeout: float = 30, tls_verify: bool = True,
+        self,
+        url: str,
+        collection: str,
+        api_key: str | None = None,
+        timeout: float = 30,
+        tls_verify: bool = True,
     ) -> None:
         self.url = url.rstrip("/")
         self.collection = collection
         self.headers = {"api-key": api_key} if api_key else {}
-        self.client = httpx.Client(timeout=timeout, verify=tls_verify, headers=self.headers)
+        self.client = httpx.Client(
+            timeout=timeout, verify=tls_verify, headers=self.headers
+        )
 
     def ensure_collection(self, dimension: int) -> None:
         response = self.client.get(f"{self.url}/collections/{self.collection}")
@@ -185,17 +199,25 @@ class QdrantVectorStore:
         verified = self.client.get(f"{self.url}/collections/{self.collection}")
         verified.raise_for_status()
         payload_schema = verified.json()["result"].get("payload_schema") or {}
-        missing = [field for field in REQUIRED_PAYLOAD_INDEXES if field not in payload_schema]
+        missing = [
+            field for field in REQUIRED_PAYLOAD_INDEXES if field not in payload_schema
+        ]
         if missing:
             raise RuntimeError("Qdrant collection is missing required payload indexes")
 
     def upsert(self, points: list[VectorPoint]) -> None:
         response = self.client.put(
             f"{self.url}/collections/{self.collection}/points?wait=true",
-            json={"points": [
-                {"id": str(point.id), "vector": point.vector, "payload": point.payload}
-                for point in points
-            ]},
+            json={
+                "points": [
+                    {
+                        "id": str(point.id),
+                        "vector": point.vector,
+                        "payload": point.payload,
+                    }
+                    for point in points
+                ]
+            },
         )
         response.raise_for_status()
 
@@ -211,7 +233,8 @@ class QdrantVectorStore:
         must = [{"key": "tenant_id", "match": {"value": str(tenant_id)}}]
         must.extend(
             {"key": key, "match": {"value": value}}
-            for key, value in filters.items() if value
+            for key, value in filters.items()
+            if value
         )
         return {"must": must}
 
@@ -249,17 +272,25 @@ class QdrantVectorStore:
     ) -> list[VectorHit]:
         response = self.client.post(
             f"{self.url}/collections/{self.collection}/points/search",
-            json={"vector": vector, "limit": limit, "with_payload": True,
-                  "filter": self._filter(tenant_id, filters)},
+            json={
+                "vector": vector,
+                "limit": limit,
+                "with_payload": True,
+                "filter": self._filter(tenant_id, filters),
+            },
         )
         response.raise_for_status()
         return [
-            VectorHit(UUID(str(item["id"])), float(item["score"]), item.get("payload") or {})
+            VectorHit(
+                UUID(str(item["id"])), float(item["score"]), item.get("payload") or {}
+            )
             for item in response.json()["result"]
         ]
 
     def health_check(self) -> bool:
         try:
-            return self.client.get("/healthz" if self.url == "" else f"{self.url}/healthz").is_success
+            return self.client.get(
+                "/healthz" if self.url == "" else f"{self.url}/healthz"
+            ).is_success
         except httpx.HTTPError:
             return False

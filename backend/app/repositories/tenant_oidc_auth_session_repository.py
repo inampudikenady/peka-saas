@@ -5,9 +5,7 @@ from app.models.tenant_oidc_auth_session import TenantOIDCAuthSession
 from app.repositories.base import BaseRepository
 
 
-class TenantOIDCAuthSessionRepository(
-    BaseRepository[TenantOIDCAuthSession]
-):
+class TenantOIDCAuthSessionRepository(BaseRepository[TenantOIDCAuthSession]):
     def __init__(self, db: Session) -> None:
         super().__init__(db, TenantOIDCAuthSession)
 

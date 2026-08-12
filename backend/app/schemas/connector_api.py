@@ -21,10 +21,18 @@ from pydantic import (
 )
 
 
-ConnectorCapabilityName = Literal["filesystem_documents", "operational_tools"]
-ConnectorName = Annotated[str, Field(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f]+$")]
-ConnectorVersion = Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")]
-ConnectorEnvironment = Annotated[str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")]
+ConnectorCapabilityName = Literal[
+    "filesystem_documents", "operational_tools", "local_knowledge"
+]
+ConnectorName = Annotated[
+    str, Field(min_length=1, max_length=255, pattern=r"^[^\x00-\x1f]+$")
+]
+ConnectorVersion = Annotated[
+    str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
+]
+ConnectorEnvironment = Annotated[
+    str, Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9][A-Za-z0-9._+\-]*$")
+]
 
 
 class ConnectorAPIModel(BaseModel):
@@ -34,7 +42,9 @@ class ConnectorAPIModel(BaseModel):
     def serialize_utc_datetimes(self, value: Any) -> Any:
         if not isinstance(value, datetime):
             return value
-        normalized = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        normalized = (
+            value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+        )
         return normalized.isoformat()
 
 
@@ -65,11 +75,17 @@ class ConnectorRegistrationRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     registration_token: str = Field(min_length=20, max_length=512)
-    connector_name: ConnectorName = Field(validation_alias=AliasChoices("connector_name", "name"))
-    connector_version: ConnectorVersion = Field(validation_alias=AliasChoices("connector_version", "version"))
+    connector_name: ConnectorName = Field(
+        validation_alias=AliasChoices("connector_name", "name")
+    )
+    connector_version: ConnectorVersion = Field(
+        validation_alias=AliasChoices("connector_version", "version")
+    )
     environment: ConnectorEnvironment
     instance_id: UUID
-    capabilities: list[ConnectorCapabilityName] = Field(default_factory=list, max_length=32)
+    capabilities: list[ConnectorCapabilityName] = Field(
+        default_factory=list, max_length=32
+    )
 
     @field_validator("capabilities")
     @classmethod
@@ -104,6 +120,22 @@ class ConnectorSourceSummary(BaseModel):
         return self
 
 
+class LocalKnowledgeStoreSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["healthy", "degraded", "unavailable"]
+    documents: int = Field(ge=0)
+    indexed_chunks: int = Field(ge=0)
+    last_index_activity: datetime | None = None
+
+    @field_validator("last_index_activity")
+    @classmethod
+    def activity_is_timezone_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError("last_index_activity must include a UTC offset")
+        return value
+
+
 class ConnectorHeartbeatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -112,13 +144,18 @@ class ConnectorHeartbeatRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("connector_name", "name"),
     )
-    connector_version: ConnectorVersion = Field(validation_alias=AliasChoices("connector_version", "version"))
+    connector_version: ConnectorVersion = Field(
+        validation_alias=AliasChoices("connector_version", "version")
+    )
     environment: ConnectorEnvironment | None = None
     timestamp: datetime
     status: Literal["healthy"]
     uptime_seconds: int = Field(ge=0)
     sources: ConnectorSourceSummary
-    capabilities: list[ConnectorCapabilityName] = Field(default_factory=list, max_length=32)
+    capabilities: list[ConnectorCapabilityName] = Field(
+        default_factory=list, max_length=32
+    )
+    local_knowledge_store: LocalKnowledgeStoreSummary | None = None
 
     @field_validator("timestamp")
     @classmethod
@@ -180,6 +217,10 @@ class ConnectorSummaryResponse(ConnectorAPIModel):
     source_healthy: int
     source_unhealthy: int
     source_disabled: int
+    local_knowledge_store_status: str | None
+    knowledge_document_count: int
+    knowledge_indexed_chunk_count: int
+    last_knowledge_index_activity_at: datetime | None
     retired_at: datetime | None
     created_at: datetime
     updated_at: datetime
@@ -196,6 +237,10 @@ class ConnectorHeartbeatHistoryResponse(ConnectorAPIModel):
     source_healthy: int
     source_unhealthy: int
     source_disabled: int
+    local_knowledge_store_status: str | None
+    knowledge_document_count: int
+    knowledge_indexed_chunk_count: int
+    last_knowledge_index_activity_at: datetime | None
     accepted: bool
 
 

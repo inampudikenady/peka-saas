@@ -30,4 +30,3 @@ def verify_connector_secret(secret: str, secret_hash: str) -> bool:
         return verify_password(secret, secret_hash)
     except (ValueError, TypeError):
         return False
-

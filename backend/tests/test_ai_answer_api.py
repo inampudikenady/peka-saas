@@ -38,9 +38,10 @@ class FakeService:
 
 
 class FakeConversationService:
-    def __init__(self):
+    def __init__(self, operational_context=None):
         self.completed = []
         self.terminated = []
+        self.operational_context = operational_context
 
     def begin_message(
         self, tenant_id, user_id, question, conversation_id=None, **kwargs
@@ -48,7 +49,11 @@ class FakeConversationService:
         return SimpleNamespace(id=conversation_id or uuid4()), SimpleNamespace(id=uuid4())
 
     def generation_context(self, tenant_id, user_id, conversation_id):
-        return SimpleNamespace(text="", message_ids=[])
+        return SimpleNamespace(
+            text="",
+            message_ids=[],
+            operational_context=self.operational_context,
+        )
 
     def complete(self, tenant_id, user_id, message_id, **values):
         self.completed.append((tenant_id, user_id, message_id, values))
@@ -84,28 +89,24 @@ def test_synchronous_answer_api():
     assert "tenant_id" not in response.json()
 
 
-def test_prompt_suggestions_use_only_current_tenant_indexed_titles(monkeypatch):
-    seen_tenant_ids = []
+def test_prompt_suggestions_use_connector_knowledge_summary():
+    class KnowledgeSummaryDb:
+        def scalar(self, _statement):
+            return SimpleNamespace(local_knowledge_store_status="healthy")
 
-    def titles(_repository, tenant_id, limit=4):
-        seen_tenant_ids.append(tenant_id)
-        return ["Acme_Operations.pdf"]
-
-    monkeypatch.setattr(
-        "app.api.routes.tenant.ai_answer.DocumentRepository."
-        "list_indexed_document_titles",
-        titles,
-    )
     value = app()
-    value.dependency_overrides[get_db] = lambda: SimpleNamespace()
+    value.dependency_overrides[get_db] = KnowledgeSummaryDb
     response = TestClient(value).get("/api/v1/tenant/ai/suggestions")
     assert response.status_code == 200
     assert response.json() == {
         "has_indexed_knowledge": True,
-        "suggestions": ["Summarize Acme Operations."],
+        "suggestions": [
+            "Summarize the available operational guidance.",
+            "What troubleshooting procedures are documented?",
+            "What should I know before making a production change?",
+        ],
         "onboarding_guidance": None,
     }
-    assert len(seen_tenant_ids) == 1
 
 
 def test_streaming_answer_event_sequence_has_no_reasoning_event():
@@ -171,6 +172,208 @@ def test_streaming_inventory_question_uses_operational_tool_not_document_search(
     assert '"source":"connector"' in response.text
     assert '"tool_name":"count_assets"' in response.text
     assert conversations.completed[0][3]["prompt_version"] == "operational-tools-v1"
+
+
+def test_streaming_followup_reuses_operational_count_context(monkeypatch):
+    class FakeOperational:
+        def __init__(self, _db):
+            pass
+
+        async def answer(self, tenant_id, user_id, intent):
+            assert intent.tool_name == "search_assets"
+            assert intent.arguments["os_family"] == "linux"
+            return OperationalAnswer(
+                "### Matching servers\n\n- **util001**",
+                "search_assets",
+                uuid4(),
+                {"assets": [{"hostname": "util001"}]},
+            )
+
+    class DocumentServiceMustNotRun(FakeService):
+        async def stream_answer(self, *args, **kwargs):
+            raise AssertionError("Document retrieval must not handle operational follow-ups")
+            yield
+
+    monkeypatch.setattr(
+        "app.api.routes.tenant.ai_answer.OperationalAssistantService",
+        FakeOperational,
+    )
+    conversations = FakeConversationService(
+        operational_context={
+            "tool_name": "count_assets",
+            "arguments": {"os_family": "linux"},
+        }
+    )
+    response = TestClient(
+        app(
+            service=DocumentServiceMustNotRun(),
+            conversation_service=conversations,
+        )
+    ).post(
+        "/api/v1/tenant/ai/answer/stream",
+        json={"query": "Which ones?", "conversation_id": str(uuid4())},
+    )
+
+    assert response.status_code == 200
+    assert "util001" in response.text
+    retrieval = conversations.completed[0][3]["retrieval"]
+    assert retrieval["operational_context"]["tool_name"] == "search_assets"
+    assert retrieval["operational_context"]["arguments"]["os_family"] == "linux"
+
+
+def test_streaming_clarification_persists_pending_operational_intent(monkeypatch):
+    class FakeOperational:
+        def __init__(self, _db):
+            pass
+
+        async def answer(self, tenant_id, user_id, intent):
+            assert intent.destination == "clarification"
+            assert intent.tool_name == "get_asset_log_evidence"
+            return OperationalAnswer(
+                "Which server should I check for log evidence?",
+                "clarification",
+                None,
+                None,
+            )
+
+    class DocumentServiceMustNotRun(FakeService):
+        async def stream_answer(self, *args, **kwargs):
+            raise AssertionError("Document retrieval must not handle pending errors")
+            yield
+
+    monkeypatch.setattr(
+        "app.api.routes.tenant.ai_answer.OperationalAssistantService",
+        FakeOperational,
+    )
+    conversations = FakeConversationService()
+    response = TestClient(
+        app(
+            service=DocumentServiceMustNotRun(),
+            conversation_service=conversations,
+        )
+    ).post(
+        "/api/v1/tenant/ai/answer/stream",
+        json={"query": "Any errors?"},
+    )
+
+    assert response.status_code == 200
+    assert "Which server" in response.text
+    context = conversations.completed[0][3]["retrieval"]["operational_context"]
+    assert context == {
+        "tool_name": "get_asset_log_evidence",
+        "arguments": {"category": "errors", "lookback_hours": 24},
+        "pending": True,
+        "intent_family": "errors",
+    }
+
+
+def test_streaming_asset_reply_executes_pending_errors_not_document_rag(monkeypatch):
+    class FakeOperational:
+        def __init__(self, _db):
+            pass
+
+        async def answer(self, tenant_id, user_id, intent):
+            assert intent.destination == "operational"
+            assert intent.tool_name == "get_asset_log_evidence"
+            assert intent.arguments == {
+                "category": "errors",
+                "lookback_hours": 24,
+                "identifier": "util001",
+            }
+            return OperationalAnswer(
+                "## Log evidence — util001\n\n- No relevant errors found.",
+                "get_asset_log_evidence",
+                uuid4(),
+                {"match_status": "found"},
+            )
+
+    class DocumentServiceMustNotRun(FakeService):
+        async def stream_answer(self, *args, **kwargs):
+            raise AssertionError("Document retrieval must not handle the pending asset reply")
+            yield
+
+    monkeypatch.setattr(
+        "app.api.routes.tenant.ai_answer.OperationalAssistantService",
+        FakeOperational,
+    )
+    conversations = FakeConversationService(
+        operational_context={
+            "tool_name": "get_asset_log_evidence",
+            "arguments": {"category": "errors", "lookback_hours": 24},
+            "pending": True,
+            "intent_family": "errors",
+        }
+    )
+    response = TestClient(
+        app(
+            service=DocumentServiceMustNotRun(),
+            conversation_service=conversations,
+        )
+    ).post(
+        "/api/v1/tenant/ai/answer/stream",
+        json={"query": "util001", "conversation_id": str(uuid4())},
+    )
+
+    assert response.status_code == 200
+    assert "Log evidence" in response.text
+
+
+def test_streaming_why_reuses_evidence_context_without_document_rag(monkeypatch):
+    class FakeOperational:
+        def __init__(self, _db):
+            pass
+
+        async def answer(self, tenant_id, user_id, intent):
+            assert intent.destination == "contextual"
+            assert intent.tool_name == "reuse_operational_evidence"
+            assert intent.arguments == {"action": "explain"}
+            return OperationalAnswer(
+                "## Explanation — util001\n\n- **Why:** CPU was above threshold.",
+                "reuse_operational_evidence",
+                None,
+                None,
+            )
+
+    class DocumentServiceMustNotRun(FakeService):
+        async def stream_answer(self, *args, **kwargs):
+            raise AssertionError("Document retrieval must not handle operational explanations")
+            yield
+
+    monkeypatch.setattr(
+        "app.api.routes.tenant.ai_answer.OperationalAssistantService",
+        FakeOperational,
+    )
+    prior = {
+        "tool_name": "get_asset_status",
+        "arguments": {"identifier": "util001", "mode": "health"},
+        "pending": False,
+        "intent_family": "health",
+        "active_identifier": "util001",
+        "evidence_snapshot": {
+            "identifier": "util001",
+            "assessment": {
+                "conclusion": "CPU was above threshold.",
+                "evidence": ["CPU utilization was 92%."],
+            },
+            "utilization": {"metric_timestamp": "2026-07-30T12:00:00Z"},
+        },
+    }
+    conversations = FakeConversationService(operational_context=prior)
+    response = TestClient(
+        app(
+            service=DocumentServiceMustNotRun(),
+            conversation_service=conversations,
+        )
+    ).post(
+        "/api/v1/tenant/ai/answer/stream",
+        json={"query": "Why?", "conversation_id": str(uuid4())},
+    )
+
+    assert response.status_code == 200
+    assert "CPU was above threshold" in response.text
+    stored = conversations.completed[0][3]["retrieval"]["operational_context"]
+    assert stored["active_identifier"] == "util001"
+    assert stored["evidence_snapshot"] == prior["evidence_snapshot"]
 
 
 def test_stream_sends_keepalive_during_delayed_generation(monkeypatch):

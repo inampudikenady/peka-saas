@@ -31,11 +31,19 @@ class PlatformAdminRepository(BaseRepository[PlatformAdmin]):
         return self.get_by_email(email) is not None
 
     def list_all(self) -> list[PlatformAdmin]:
-        return list(self.db.scalars(select(PlatformAdmin).order_by(PlatformAdmin.username)).all())
+        return list(
+            self.db.scalars(
+                select(PlatformAdmin).order_by(PlatformAdmin.username)
+            ).all()
+        )
 
     def count_active_admins(self) -> int:
-        stmt = select(func.count()).select_from(PlatformAdmin).where(
-            PlatformAdmin.is_active.is_(True),
-            PlatformAdmin.role == PlatformAdminRole.PLATFORM_ADMIN,
+        stmt = (
+            select(func.count())
+            .select_from(PlatformAdmin)
+            .where(
+                PlatformAdmin.is_active.is_(True),
+                PlatformAdmin.role == PlatformAdminRole.PLATFORM_ADMIN,
+            )
         )
         return self.db.scalar(stmt) or 0

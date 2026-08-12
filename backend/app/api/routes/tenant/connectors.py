@@ -34,7 +34,9 @@ def list_connectors(
     actor: TenantUser = Depends(require_tenant_admin),
     service: ConnectorService = Depends(get_connector_service),
 ):
-    return service.list_tenant_connectors(context.tenant_id, include_retired=include_retired)
+    return service.list_tenant_connectors(
+        context.tenant_id, include_retired=include_retired
+    )
 
 
 @router.get("/registration-tokens", response_model=list[RegistrationTokenResponse])
@@ -44,10 +46,16 @@ def list_registration_tokens(
     actor: TenantUser = Depends(require_tenant_admin),
     service: ConnectorService = Depends(get_connector_service),
 ):
-    return service.list_registration_tokens(context.tenant_id, include_inactive=include_inactive)
+    return service.list_registration_tokens(
+        context.tenant_id, include_inactive=include_inactive
+    )
 
 
-@router.post("/registration-tokens", response_model=RegistrationTokenCreatedResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/registration-tokens",
+    response_model=RegistrationTokenCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_registration_token(
     _payload: RegistrationTokenCreate | None = None,
     context: TenantContext = Depends(get_current_tenant_context),
@@ -57,14 +65,18 @@ def create_registration_token(
     return service.create_registration_token(context.tenant_id, actor, None)
 
 
-@router.delete("/registration-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/registration-tokens/{token_id}", status_code=status.HTTP_204_NO_CONTENT
+)
 def revoke_registration_token(
     token_id: UUID,
     context: TenantContext = Depends(get_current_tenant_context),
     actor: TenantUser = Depends(require_tenant_admin),
     service: ConnectorService = Depends(get_connector_service),
 ) -> Response:
-    handle(lambda: service.revoke_registration_token(context.tenant_id, token_id, actor))
+    handle(
+        lambda: service.revoke_registration_token(context.tenant_id, token_id, actor)
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

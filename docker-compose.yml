@@ -23,50 +23,11 @@ services:
       DEBUG: "false"
       PLATFORM_ADMIN_JWT_SECRET: ${PLATFORM_ADMIN_JWT_SECRET:-change-me-local-only}
       TENANT_URL_MODE: path
-      PEKA_OBJECT_STORAGE_LOCAL_ROOT: /var/lib/peka/documents
-      PEKA_QDRANT_URL: http://qdrant:6333
-      PEKA_EMBEDDING_PROVIDER: ${PEKA_EMBEDDING_PROVIDER:-openai-compatible}
-      PEKA_EMBEDDING_BASE_URL: ${PEKA_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
-      PEKA_EMBEDDING_API_KEY: ${PEKA_EMBEDDING_API_KEY:-}
-      PEKA_EMBEDDING_MODEL: ${PEKA_EMBEDDING_MODEL:-nomic-embed-text}
-      PEKA_EMBEDDING_DIMENSION: ${PEKA_EMBEDDING_DIMENSION:-768}
     depends_on:
       postgres:
         condition: service_healthy
     ports:
       - "8000:8000"
-    volumes:
-      - peka_saas_documents:/var/lib/peka/documents
-
-  ingestion-worker:
-    build: ./backend
-    command: ["python", "-m", "app.scripts.run_ingestion_worker"]
-    environment:
-      DATABASE_URL: postgresql+psycopg://peka:peka@postgres:5432/peka_saas
-      ENVIRONMENT: local
-      PEKA_OBJECT_STORAGE_LOCAL_ROOT: /var/lib/peka/documents
-      PEKA_QDRANT_URL: http://qdrant:6333
-      PEKA_EMBEDDING_PROVIDER: ${PEKA_EMBEDDING_PROVIDER:-openai-compatible}
-      PEKA_EMBEDDING_BASE_URL: ${PEKA_EMBEDDING_BASE_URL:-http://host.docker.internal:11434/v1}
-      PEKA_EMBEDDING_API_KEY: ${PEKA_EMBEDDING_API_KEY:-}
-      PEKA_EMBEDDING_MODEL: ${PEKA_EMBEDDING_MODEL:-nomic-embed-text}
-      PEKA_EMBEDDING_DIMENSION: ${PEKA_EMBEDDING_DIMENSION:-768}
-    depends_on:
-      postgres:
-        condition: service_healthy
-      qdrant:
-        condition: service_started
-    volumes:
-      - peka_saas_documents:/var/lib/peka/documents
-    profiles: ["documents"]
-
-  qdrant:
-    image: qdrant/qdrant:v1.14.1
-    ports:
-      - "6333:6333"
-    volumes:
-      - peka_saas_qdrant:/qdrant/storage
-    profiles: ["documents"]
 
   frontend:
     build: ./frontend
@@ -77,5 +38,3 @@ services:
 
 volumes:
   peka_saas_postgres_data:
-  peka_saas_documents:
-  peka_saas_qdrant:

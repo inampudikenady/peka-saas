@@ -33,7 +33,7 @@ class DeterministicFakeEmbeddingProvider:
                 material += hashlib.sha256(f"{counter}:{text}".encode()).digest()
                 counter += 1
             values = [
-                int.from_bytes(material[index:index + 4], "big") / 2**32 - 0.5
+                int.from_bytes(material[index : index + 4], "big") / 2**32 - 0.5
                 for index in range(0, self.dimension * 4, 4)
             ]
             norm = math.sqrt(sum(value * value for value in values)) or 1
@@ -45,8 +45,13 @@ class OpenAICompatibleEmbeddingProvider:
     name = "openai-compatible"
 
     def __init__(
-        self, base_url: str, api_key: str | None, model: str, dimension: int,
-        timeout: float = 30, batch_size: int = 64,
+        self,
+        base_url: str,
+        api_key: str | None,
+        model: str,
+        dimension: int,
+        timeout: float = 30,
+        batch_size: int = 64,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
@@ -59,21 +64,27 @@ class OpenAICompatibleEmbeddingProvider:
         vectors: list[list[float]] = []
         for start in range(0, len(texts), self.batch_size):
             headers = (
-                {"Authorization": f"Bearer {self.api_key}"}
-                if self.api_key else {}
+                {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
             )
             response = httpx.post(
                 f"{self.base_url}/embeddings",
                 headers=headers,
-                json={"model": self.model, "input": texts[start:start + self.batch_size]},
+                json={
+                    "model": self.model,
+                    "input": texts[start : start + self.batch_size],
+                },
                 timeout=self.timeout,
             )
             if response.status_code == 429 or response.status_code >= 500:
-                raise TransientEmbeddingError("Embedding provider is temporarily unavailable")
+                raise TransientEmbeddingError(
+                    "Embedding provider is temporarily unavailable"
+                )
             response.raise_for_status()
             vectors.extend(item["embedding"] for item in response.json()["data"])
         if any(len(vector) != self.dimension for vector in vectors):
-            raise EmbeddingDimensionError("Embedding provider returned an unexpected dimension")
+            raise EmbeddingDimensionError(
+                "Embedding provider returned an unexpected dimension"
+            )
         return vectors
 
 
